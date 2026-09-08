@@ -458,7 +458,7 @@ class Pr2Test(unittest.TestCase):
                 environ=environment,
             )
             configured = opencode.read_text(encoding="utf-8").replace(
-                '"enabled": false', '"enabled": true'
+                '"enabled": true', '"enabled": false'
             )
             opencode.write_text(configured, encoding="utf-8")
             plan = run_uninstall(

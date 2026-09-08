@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import os
 from pathlib import Path
+import signal
 import subprocess
 import threading
 import time
@@ -14,6 +15,9 @@ from typing import Any, Mapping, Sequence
 from .adapters import DetectedWorker, TaskRequest, build_invocation
 from .git_evidence import GitEvidenceError, capture_base, capture_snapshot
 from .results import NativeReport, build_result, parse_native_output, validate_result
+
+
+REENTRY_ENV = "HARNESS_RELAY_ACTIVE"
 
 
 @dataclass(frozen=True)
@@ -48,6 +52,10 @@ def run_task(
     run_id: str | None = None,
 ) -> dict[str, Any]:
     """Run one selected native worker and normalize all observable evidence."""
+    if os.environ.get(REENTRY_ENV) == "1" or (
+        environment is not None and environment.get(REENTRY_ENV) == "1"
+    ):
+        raise RuntimeError("HarnessRelay recursion refused")
     invocation = build_invocation(worker, task)
     run_identifier = run_id or uuid.uuid4().hex
 
@@ -149,6 +157,7 @@ def _run_process(
     env = os.environ.copy()
     if environment is not None:
         env.update({str(key): str(value) for key, value in environment.items()})
+    env[REENTRY_ENV] = "1"
     try:
         process = subprocess.Popen(
             tuple(argv),
@@ -158,6 +167,7 @@ def _run_process(
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             shell=False,
+            start_new_session=True,
         )
     except FileNotFoundError as exc:
         return (
@@ -234,11 +244,16 @@ def _stop_process(process: subprocess.Popen[bytes]) -> None:
     if process.poll() is not None:
         return
     try:
-        process.terminate()
+        os.killpg(process.pid, signal.SIGTERM)
         process.wait(timeout=0.5)
+    except ProcessLookupError:
+        return
     except subprocess.TimeoutExpired:
-        process.kill()
-        process.wait(timeout=0.5)
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+            process.wait(timeout=0.5)
+        except ProcessLookupError:
+            return
 
 
 def _validation_outcome(process: Mapping[str, Any]) -> str:

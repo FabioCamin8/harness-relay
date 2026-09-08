@@ -21,13 +21,12 @@ from .jsonc import (
 
 
 MCP_NAME = "harness-relay"
-MCP_ENTRY = {
+LEGACY_MCP_ENTRY = {
     "type": "local",
     "command": ["harness-relay", "mcp", "--stdio"],
-    # PR-4 owns the MCP runtime.  Keep the discoverable entry disabled until
-    # that command exists and has a separately verified protocol contract.
     "enabled": False,
 }
+MCP_ENTRY = {**LEGACY_MCP_ENTRY, "enabled": True}
 INSTRUCTION_START = "<!-- HARNESSRELAY MANAGED START -->"
 INSTRUCTION_END = "<!-- HARNESSRELAY MANAGED END -->"
 INSTRUCTION_TEXT = (
@@ -175,7 +174,9 @@ def _check_layer_conflicts(root: object, source: str, instruction_path: str) -> 
             )
 
 
-def integrate(text: str, instruction_path: str) -> tuple[str, bool, bool]:
+def integrate(
+    text: str, instruction_path: str, *, allow_legacy_upgrade: bool = False
+) -> tuple[str, bool, bool]:
     """Add the namespaced MCP entry and instruction path, preserving source text.
 
     Returns ``(new_text, mcp_was_created, instruction_path_was_created)``.
@@ -198,6 +199,9 @@ def integrate(text: str, instruction_path: str) -> tuple[str, bool, bool]:
         raise OpenCodeConfigError("OpenCode config key 'mcp' must be an object")
     relay = mcp.get(MCP_NAME, MISSING)
     if relay is MISSING:
+        text = edit(text, ["mcp", MCP_NAME], MCP_ENTRY)
+        mcp_created = True
+    elif allow_legacy_upgrade and canonical(relay) == canonical(LEGACY_MCP_ENTRY):
         text = edit(text, ["mcp", MCP_NAME], MCP_ENTRY)
         mcp_created = True
     elif canonical(relay) != canonical(MCP_ENTRY):
