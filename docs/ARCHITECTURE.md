@@ -21,7 +21,7 @@ Keep one versioned JSON file for HarnessRelay. Suggested concerns are enabled ad
 
 Do not copy OpenCode's master model into this file. Retain the user's existing model selection and provider configuration. Worker model defaults also remain native. Task-level overrides are optional, explicit, and validated by the adapter.
 
-Setup owns only its namespaced OpenCode MCP entry and marked instruction fragment. In PR-2 the entry is written with `enabled: false`; PR-4 owns the MCP runtime and must separately verify the protocol before enabling it. It must inspect effective scope and detect conflicts rather than treating one config file as the whole setup. Preserve unrelated JSON/JSONC content and newer user edits. Use an ownership record and atomic writes, not whole-file backup restoration as uninstall logic. No root access or native harness installation/authentication is part of setup.
+Setup owns only its namespaced OpenCode MCP entry and marked instruction fragment. PR-4 enables the entry and upgrades the old disabled value only when the PR-2 ownership record and exact source hash agree. Equivalent user-created or edited entries remain conflicts. Setup preserves unrelated JSON/JSONC and newer user edits and uses atomic ownership records rather than whole-file restoration.
 
 OpenCode JSONC edits use the pinned Python-native `tree-sitter==0.23.2` and `tree-sitter-json==0.24.8` pair. Tree-sitter supplies source ranges and comments; this bounded module masks only recognized trailing commas for strict validation and rejects all other parser recovery. No external runtime, network bootstrap, or user-level parser cache is needed.
 
@@ -59,11 +59,11 @@ The schema and implementation validator must agree; validate nested types, not o
 
 ## MCP and lifecycle
 
-Use stdio and only supported protocol versions/capabilities. Logs cannot share protocol stdout. Typed tools expose only enabled adapters; disabled workers cannot be invoked by bypassing tool discovery. Runtime validation enforces the same constraints as input schemas.
+The alpha server uses newline-delimited JSON-RPC stdio and MCP `2025-11-25` only. It returns the supported version rather than echoing an unsupported client request. Logs cannot share protocol stdout. Typed tools expose only enabled adapters and runtime validation enforces their declared schemas.
 
 Use the tested OpenCode client's deadlines and supported cancellation behavior. Long work must not make cancellation/status permanently inaccessible or leave unmanaged child processes after client disconnect. Prefer a small bounded subprocess implementation; this does not authorize a queue, scheduler, database, or separate persistent service. Report cancellation/timeout and any unconfirmed remote termination honestly.
 
-The MCP [versioning and compatibility specification](https://modelcontextprotocol.io/specification/2026-07-28/basic/versioning) is an implementation reference, not a claim that this project already supports that version. Select and test a compatible SDK/protocol combination during PR-4.
+The current Python MCP SDK requires Python 3.10 or newer while HarnessRelay supports Python 3.9. The alpha therefore implements only this bounded stdio lifecycle, without HTTP/auth transports or an SDK dependency. Later protocol support requires separate compatibility evidence.
 
 ## No second master
 
