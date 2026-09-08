@@ -1,6 +1,6 @@
 # Implementation plan
 
-Baseline: 2026-09-07. Status: approved product direction; implementation not started in this repository.
+Baseline: 2026-09-07. Status: PR-1 candidate implementation under review; main remains the documentation bootstrap.
 
 ## Product contract
 
@@ -37,7 +37,7 @@ Work:
 - Keep OpenCode as the sole master; do not add a second OpenCode worker by default. There is no model catalog or provider-auth subsystem.
 - Add a minimal offline test entry point and clean installation test. Do not install into the maintainer's live environment.
 
-Acceptance: G01 and G02 in [Acceptance](docs/ACCEPTANCE.md). A built artifact installs under a temporary non-root home, and no personal environment is needed. A new user can select a supported native adapter without owning the maintainer's subscriptions.
+Acceptance: G01 and G02 in [Acceptance](docs/ACCEPTANCE.md). A built artifact installs under a temporary non-root home, imports, and exposes only the supported `--help` and `--version` commands without a personal environment. Adapter selection and configuration are later-phase work and are outside PR-1.
 
 ### PR-2 — Minimal, reversible setup
 
@@ -112,7 +112,7 @@ Update this table only with actual PR/commit evidence. PR bodies hold detailed t
 
 | Package | State | PR / reviewed candidate |
 | --- | --- | --- |
-| PR-1 | Not started | — |
+| PR-1 | Reviewed PASS | [#1](https://github.com/FabioCamin8/harness-relay/pull/1) |
 | PR-2 | Not started | — |
 | PR-3 | Not started | — |
 | PR-4 | Not started | — |
