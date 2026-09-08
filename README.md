@@ -2,7 +2,7 @@
 
 Native harness delegation for OpenCode. Bring your own orchestrator model, keep your native agents, and delegate bounded tasks with structured results.
 
-**Status: planning / documentation bootstrap.** This repository does not yet contain a working package, installer, MCP server, or released version. Commands and architecture below describe the planned product, not completed functionality.
+**Status: PR-1 package foundation.** The repository contains a minimal installable package with `--help` and `--version`. Setup, adapters, MCP delegation, and the rest of the product remain planned work.
 
 ## One master, native workers
 
@@ -32,6 +32,13 @@ The first release has no mandatory GLM/Z.AI provider, second OpenCode worker, sh
 
 Setup detects supported installed harnesses; the user chooses which to enable and reviews a minimal OpenCode integration. The master delegates a bounded task to a named worker. Writable tasks use dedicated Git worktrees. The worker returns native output, which is normalized with validation evidence. Results and useful work are retained; merging is a separate explicit decision.
 
+Available CLI surface:
+
+```text
+harness-relay --help
+harness-relay --version
+```
+
 Planned CLI surface, **not available yet**:
 
 ```text
@@ -41,7 +48,7 @@ harness-relay doctor
 harness-relay uninstall
 ```
 
-Setup must also support non-interactive configuration. There is no package installation command until a tested artifact exists.
+Setup must also support non-interactive configuration. Install the tested package artifact with standard Python tooling; no HarnessRelay setup subcommand is available yet.
 
 ## Boundaries
 
@@ -67,6 +74,6 @@ Start implementation with PR-1 in the plan. Do not import private runtime state 
 
 ## License and affiliation
 
-MIT is the proposed license, pending maintainer confirmation and source-provenance review. No LICENSE file or licensed release is asserted by this documentation bootstrap. Resolve this before publishing implementation sources or distributable releases.
+HarnessRelay is released under the MIT License. The PR-1 implementation is original public code written for this repository; no private implementation source, history, runtime state, or other private material was imported.
 
 HarnessRelay is an independent integration project. It is not presented as an official product of any supported harness or model provider.

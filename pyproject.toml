@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "harness-relay"
+version = "0.1.0a1"
+description = "Portable public foundation for HarnessRelay"
+readme = "README.md"
+requires-python = ">=3.9"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "HarnessRelay contributors" }]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+]
+
+[project.scripts]
+harness-relay = "harness_relay.cli:main"
+
+[tool.setuptools]
+package-dir = { "" = "src" }
+packages = ["harness_relay"]
