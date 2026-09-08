@@ -21,7 +21,7 @@ Keep one versioned JSON file for HarnessRelay. Suggested concerns are enabled ad
 
 Do not copy OpenCode's master model into this file. Retain the user's existing model selection and provider configuration. Worker model defaults also remain native. Task-level overrides are optional, explicit, and validated by the adapter.
 
-Setup owns only its namespaced OpenCode MCP entry and marked instruction fragment. PR-4 enables the entry and upgrades the old disabled value only when the PR-2 ownership record and exact source hash agree. Equivalent user-created or edited entries remain conflicts. Setup preserves unrelated JSON/JSONC and newer user edits and uses atomic ownership records rather than whole-file restoration.
+Setup owns only its namespaced OpenCode MCP entry and marked instruction fragment. The generated MCP command includes the resolved selected relay-config path. PR-4 enables or updates a previously generated entry only when the ownership record and exact source hash agree. Equivalent user-created or edited entries remain conflicts. Setup preserves unrelated JSON/JSONC and newer user edits and uses atomic ownership records rather than whole-file restoration.
 
 OpenCode JSONC edits use the pinned Python-native `tree-sitter==0.23.2` and `tree-sitter-json==0.24.8` pair. Tree-sitter supplies source ranges and comments; this bounded module masks only recognized trailing commas for strict validation and rejects all other parser recovery. No external runtime, network bootstrap, or user-level parser cache is needed.
 
@@ -29,7 +29,7 @@ Official OpenCode documentation describes JSON/JSONC and layered merged configur
 
 ## Task boundary
 
-A coding task identifies a supported enabled worker, objective, repository/worktree when applicable, exact starting revision when known, edit intent, constraints, acceptance criteria, evidence pointers, requested validation, and timeout. Use paths and short evidence summaries instead of copying an entire repository through the master.
+A coding task identifies a supported enabled worker, objective, source repository, exact starting revision, edit intent, constraints, acceptance criteria, evidence pointers, requested validation, and timeout. MCP and direct CLI delegation both reserve a retained managed worktree from that revision. Use paths and short evidence summaries instead of copying an entire repository through the master.
 
 The adapter constructs native argv from validated inputs; task text is data, not shell syntax. Honor supported native headless interfaces and existing authentication. Unexpected interactive/auth requirements produce blocked evidence rather than a login flow or permission escalation.
 

@@ -1,6 +1,6 @@
 # Compatibility and evidence
 
-Status at cumulative code candidate `7afa87f`, 2026-09-08: 67 source and exact-wheel tests pass on Debian GNU/Linux 13, including UID 65534 on CPython 3.13.5 and CPython 3.9.25. Installed-artifact G14 passed with one live OpenCode-to-Codex repository edit and independent validation. Maintainer review and hosted final-head CI remain pending.
+Status at cumulative code candidate `0168a0c`, 2026-09-08: 77/77 source tests pass on Debian GNU/Linux 13. Exact installed-artifact evidence for this candidate is pending regeneration. The preceding `7afa87f` artifact passed on CPython 3.13.5 as UID 65534 and CPython 3.9.25 and supplied the recorded live OpenCode-to-Codex repository edit with independent validation. Final delta review, maintainer review, and hosted final-head CI remain pending.
 
 ## Intended support
 
@@ -14,7 +14,7 @@ Status at cumulative code candidate `7afa87f`, 2026-09-08: 67 source and exact-w
 | Other installed CLIs | Possible future native workers | Unsupported until a named adapter and tests exist; detection alone is insufficient. |
 | Remote desktop | Optional real GUI capability | Deferred, disabled by default; no specific product/host required by core. |
 | Apple tooling | Optional specialized capability | Deferred, disabled by default; no Mac required by core. |
-| Linux, non-root user on Debian GNU/Linux 13 | First required platform | Exact wheel installed and passed 67/67 as UID 65534 on CPython 3.13.5. Live inference used the existing authorized maintainer account; no auth material was copied or permission-weakened. |
+| Linux, non-root user on Debian GNU/Linux 13 | First required platform | Current source suite passes 77/77. The preceding exact wheel passed 67/67 as UID 65534 on CPython 3.13.5; current exact-wheel regeneration is pending. Live inference used the existing authorized maintainer account; no auth material was copied or permission-weakened. |
 | macOS / WSL / native Windows | Additional platforms | Unverified; do not claim support without platform-specific evidence. |
 
 OpenCode's chosen model must be capable of using the exposed tools for the intended task. Model independence does not promise equal reasoning quality or tool reliability across models. HarnessRelay does not rank them or select provider accounts.
