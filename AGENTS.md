@@ -14,7 +14,7 @@ No hidden worker/provider fallback, automatic retry, automatic merge, nested del
 
 ## Work boundaries
 
-- Astra is the development coordinator/reviewer; Luna is the implementation worker. These are workflow roles, not product dependencies or hard-coded runtime model names.
+- Sol is the development lead, coordinator, and reviewer; one Luna XHigh worker is the implementation writer at a time. Do not spawn nested agents. Astra Medium is reserved for difficult blockers or high-risk decisions. These are development roles, not product dependencies or hard-coded runtime model names.
 - Implement one assigned PR work package at a time. Preserve unrelated dirty files and existing worktrees. Use isolated branches/worktrees for concurrent work.
 - Inspect current main, assigned base/head SHAs, open PRs, and relevant checks before editing or reviewing. Never invent an unavailable tool, source, or test result.
 - Do not modify the maintainer's installed harnesses, live OpenCode configuration, native auth, proxy services, remote hosts, or working deployments while building this package. Setup tests use temporary homes/configs by default.
@@ -39,6 +39,6 @@ Use offline tests with fake CLIs and disposable repositories for normal CI. Live
 
 For each PR provide the work-package ID, base and candidate SHA, changed files, relevant acceptance gate IDs, exact test commands/results, not-run checks, source/provenance notes, and unresolved issues. Review the entire diff, not only the implementation summary.
 
-Astra issues a verdict against a specific candidate SHA: PASS, CHANGES_REQUIRED, or BLOCKED. Separate code defects from environmental/optional gaps. A new commit requires review of the delta; approval does not silently transfer to an unreviewed head.
+Sol issues a verdict against a specific candidate SHA: PASS, CHANGES_REQUIRED, or BLOCKED. Separate code defects from environmental/optional gaps. A new commit requires review of the delta; approval does not silently transfer to an unreviewed head.
 
-The current assignment ends after its PR and handoff. Do not advance to the next work package or add features without the coordinator's next explicit packet. Keep documentation concise and update only claims supported by evidence.
+After PASS, continue the planned progression while staying within the current assignment's scope and stop condition; do not wait for a routine per-PR packet or approval. Keep documentation concise and update only claims supported by evidence.

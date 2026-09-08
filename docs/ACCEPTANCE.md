@@ -1,6 +1,6 @@
 # Acceptance gates
 
-All gates below are **planned / not yet run for HarnessRelay**. Evidence from a private predecessor or another installation does not automatically validate this public package.
+All gates below are **planned and not accepted by this document**. Local command observations are recorded separately from gate acceptance; evidence from a private predecessor or another installation does not automatically validate this public package.
 
 Each result records candidate SHA, test command, environment/version, observed outcome, and evidence location. Use passed, failed, blocked, or not run; never substitute an implementation summary for test evidence.
 
@@ -23,6 +23,12 @@ Normal CI uses fake native executables, temporary homes/configs, and disposable 
 | G11 — Process lifecycle | PR-4 | Timeout, cancellation, parent disconnect, subprocess failure, and interruption during setup/result writing leave inspectable terminal state; owned child processes are handled; no permanent MCP deadlock or stale running claim. |
 | G12 — MCP and recursion | PR-4 | Supported handshake/error handling, protocol-clean stdout, runtime schema validation, enabled-only discovery/invocation, responsive cancel/status behavior, and worker re-entry rejection are tested. Native internal subagents are not prohibited. |
 | G13 — Doctor | PR-4 | Doctor is read-only and inference-free; detection/config validity differ from dated capability checks; disabled/optional capabilities are not probed or treated as required failures; required enabled failures are actionable. |
+
+### PR-2 evidence
+
+G03 and G04 passed independent review at code candidate `8849e043f04e320f111fba8f11e070c012a45e03` on Debian GNU/Linux 13 with CPython 3.13.5. `env PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src /tmp/harness-relay-pr2-exact.XtDLOR/venv/bin/python -m unittest discover -s tests -v` passed 44/44 from source. A wheel built from `git archive 8849e04` was installed with its test dependencies into a fresh virtual environment; `env -u PYTHONPATH PYTHONDONTWRITEBYTECODE=1 /tmp/harness-relay-pr2-final.WGIHNa/venv/bin/python -m unittest discover -s /tmp/harness-relay-pr2-final.WGIHNa/src/tests -v` passed 44/44 outside the checkout. The wheel is `/tmp/harness-relay-pr2-final.WGIHNa/artifacts/harness_relay-0.1.0a1-py3-none-any.whl`, SHA-256 `8bff2bebab0e520cc25b18b26ad21ba243e1b6ee74bab37195f08451562b7fde`; it contains the package schema and MIT license. An installed cold `setup --dry-run --non-interactive` with no enabled workers ran as UID 65534 against a mode-0555 temporary HOME, whose directory inventory remained empty. CPython 3.9 manylinux2014 x86_64 binary wheels were separately resolved for `tree-sitter==0.23.2` and `tree-sitter-json==0.24.8`. No live worker task, MCP runtime, worktree, lifecycle, doctor, CI/release, or G14 claim is made here.
+
+JSONC setup uses the pinned Python-native Tree-sitter parser pair (`tree-sitter==0.23.2`, `tree-sitter-json==0.24.8`) with no external runtime or network bootstrap. The setup-created `mcp.harness-relay` entry remains `enabled: false` until PR-4 implements and verifies the MCP runtime.
 
 Use adversarial but harmless fixtures: filenames with spaces and unusual characters, identifiers containing separators, a fake CLI that spawns a child, a worker that commits and exits, an existing dirty checkout, and a JSONC config containing unrelated comments/keys. Do not treat a denylist of the maintainer's removed tools as a universal product test.
 

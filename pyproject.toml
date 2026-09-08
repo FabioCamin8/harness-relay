@@ -16,10 +16,21 @@ classifiers = [
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3 :: Only",
 ]
+dependencies = [
+    "tree-sitter==0.23.2",
+    "tree-sitter-json==0.24.8",
+]
 
 [project.scripts]
 harness-relay = "harness_relay.cli:main"
 
+[project.optional-dependencies]
+test = ["jsonschema>=4.23"]
+
 [tool.setuptools]
 package-dir = { "" = "src" }
-packages = ["harness_relay"]
+packages = ["harness_relay", "harness_relay.resources"]
+
+[tool.setuptools.package-data]
+harness_relay = ["resources/*.json"]
+"harness_relay.resources" = ["*.json"]

@@ -17,11 +17,13 @@ HarnessRelay has no reasoning model, model catalog, provider API, authentication
 
 ## Configuration and setup
 
-Keep one versioned JSON file for HarnessRelay. Suggested concerns are enabled adapter names, executable paths, optional role preferences, and local storage locations. The exact schema is implemented and tested in PR-2; do not add speculative settings.
+Keep one versioned JSON file for HarnessRelay. Suggested concerns are enabled adapter names, executable paths, optional role preferences, and local storage locations. The exact schema is implemented in PR-2; do not add speculative settings. The packaged JSON Schema owns standard structural validation, while the runtime validator adds representation and cross-field rules. In particular, JSON Schema treats the numeric token `1.0` as an integer; HarnessRelay requires the decoded version to be an integer value. Both layers are required, and schema validity alone is not configuration validity.
 
 Do not copy OpenCode's master model into this file. Retain the user's existing model selection and provider configuration. Worker model defaults also remain native. Task-level overrides are optional, explicit, and validated by the adapter.
 
-Setup owns only its namespaced OpenCode MCP entry and marked instruction fragment. It must inspect effective scope and detect conflicts rather than treating one config file as the whole setup. Preserve unrelated JSON/JSONC content and newer user edits. Use an ownership record and atomic writes, not whole-file backup restoration as uninstall logic. No root access or native harness installation/authentication is part of setup.
+Setup owns only its namespaced OpenCode MCP entry and marked instruction fragment. In PR-2 the entry is written with `enabled: false`; PR-4 owns the MCP runtime and must separately verify the protocol before enabling it. It must inspect effective scope and detect conflicts rather than treating one config file as the whole setup. Preserve unrelated JSON/JSONC content and newer user edits. Use an ownership record and atomic writes, not whole-file backup restoration as uninstall logic. No root access or native harness installation/authentication is part of setup.
+
+OpenCode JSONC edits use the pinned Python-native `tree-sitter==0.23.2` and `tree-sitter-json==0.24.8` pair. Tree-sitter supplies source ranges and comments; this bounded module masks only recognized trailing commas for strict validation and rejects all other parser recovery. No external runtime, network bootstrap, or user-level parser cache is needed.
 
 Official OpenCode documentation describes JSON/JSONC and layered merged configuration; verify the tested version before selecting an integration mechanism: [configuration](https://opencode.ai/docs/config/) and [MCP servers](https://opencode.ai/docs/mcp-servers/).
 

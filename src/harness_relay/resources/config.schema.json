@@ -1,0 +1,44 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/FabioCamin8/harness-relay/config.schema.json",
+  "title": "HarnessRelay configuration",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version"],
+  "properties": {
+    "version": {"type": "integer", "const": 1},
+    "workers": {
+      "type": "object",
+      "additionalProperties": false,
+      "propertyNames": {"enum": ["codex", "claude", "agy"]},
+      "patternProperties": {
+        "^(codex|claude|agy)$": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {"type": "boolean", "default": false},
+            "executable": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^[^\\u0000]*$"
+            }
+          }
+        }
+      }
+    },
+    "roles": {
+      "type": "object",
+      "propertyNames": {"pattern": "^[A-Za-z][A-Za-z0-9_-]{0,63}$"},
+      "additionalProperties": {"type": "string", "enum": ["codex", "claude", "agy"]}
+    },
+    "paths": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "data": {"type": "string", "pattern": "^(?:/|~/|~$)[^\\u0000]*$"},
+        "worktrees": {"type": "string", "pattern": "^(?:/|~/|~$)[^\\u0000]*$"},
+        "artifacts": {"type": "string", "pattern": "^(?:/|~/|~$)[^\\u0000]*$"}
+      }
+    }
+  }
+}

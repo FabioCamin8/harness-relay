@@ -1,6 +1,6 @@
 # Implementation plan
 
-Baseline: 2026-09-07. Status: PR-1 candidate implementation under review; main remains the documentation bootstrap.
+Baseline: 2026-09-07. Status: PR-1 is merged; PR-2 G03/G04 passed exact-SHA review at `8849e043f04e320f111fba8f11e070c012a45e03`, followed by a reviewed evidence-only delta.
 
 ## Product contract
 
@@ -18,7 +18,7 @@ Remote desktop and Apple capabilities are optional follow-on work. Preserve thei
 
 ## Execution model
 
-Use five small, sequential PRs. `PR-1` through `PR-5` below are work-package identifiers, not existing GitHub PR numbers. Each PR names its base SHA, candidate SHA, scope, evidence, and unverified claims. Astra reviews; Luna implements. Read [the workflow](docs/WORKFLOW.md).
+Use five small, sequential PRs. `PR-1` through `PR-5` below are work-package identifiers, not existing GitHub PR numbers. Each PR names its base SHA, candidate SHA, scope, evidence, and unverified claims. Sol leads, coordinates, and reviews; one Luna XHigh worker implements at a time; no nested agents. Astra Medium is reserved for difficult blockers or high-risk decisions. Read [the workflow](docs/WORKFLOW.md).
 
 The documentation bootstrap may exist on main. Subsequent implementation uses branches and PRs. No automatic merging, release tagging, deployment, or edits to the maintainer's working installation are authorized by this plan alone.
 
@@ -49,6 +49,7 @@ Work:
 - Offer one setup flow: OpenCode integration scope, enabled workers, optional role preferences, and user-owned storage paths. Retain the existing OpenCode master model. No profile framework or mandatory worker model override.
 - Support `setup --dry-run`, interactive setup, and equivalent file-driven non-interactive setup. Keep our configuration in one versioned JSON format with strict types and actionable errors.
 - Manage only a namespaced MCP entry and a short, marked instruction block. Inspect effective configuration and respect JSON/JSONC, precedence, managed policy, and user changes.
+- The setup-created MCP entry remains disabled until PR-4 implements and verifies the MCP runtime. JSONC editing uses the pinned Python Tree-sitter parser pair and has no external runtime prerequisite.
 - Make writes atomic and reversible. Record ownership sufficient for a second setup to be a no-op. A conflict is a reported conflict, not permission to overwrite unrelated data.
 - Uninstall removes only unchanged managed integration fragments. Preserve later user edits, credentials, native harnesses, worktrees, and task artifacts. Never restore an entire old config over newer user changes.
 - Default to no enabled workers until the user selects them. Disabled components must not be probed or advertised as runnable.
@@ -113,14 +114,14 @@ Update this table only with actual PR/commit evidence. PR bodies hold detailed t
 | Package | State | PR / reviewed candidate |
 | --- | --- | --- |
 | PR-1 | Reviewed PASS | [#1](https://github.com/FabioCamin8/harness-relay/pull/1) |
-| PR-2 | Not started | — |
+| PR-2 | Reviewed G03/G04 PASS at `8849e04`; evidence-only delta reviewed | [#2](https://github.com/FabioCamin8/harness-relay/pull/2) |
 | PR-3 | Not started | — |
 | PR-4 | Not started | — |
 | PR-5 | Not started | — |
 
 ## Stop rules and deferred work
 
-Astra can request a narrowly justified amendment when implementation evidence contradicts an assumption. Record the decision and affected acceptance gate; do not silently expand scope.
+Sol can request a narrowly justified amendment when implementation evidence contradicts an assumption. Escalate only difficult blockers or high-risk decisions to Astra Medium. Record the decision and affected acceptance gate; do not silently expand scope.
 
 No automatic fallback/merge/retry, provider proxy, central secrets store, model ranking, token/cost optimizer, scheduler, queue, database, dashboard, shared-memory service, global skill synchronization, or self-updating harness installer.
 
