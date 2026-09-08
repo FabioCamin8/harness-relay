@@ -132,6 +132,24 @@ class Pr4Test(unittest.TestCase):
             self.assertEqual(json.loads(restarted_output.getvalue())["result"]["isError"], False)
             restarted.pool.shutdown(wait=True)
 
+    def test_mcp_rejects_excess_work_instead_of_queueing(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory); repo = root / "repo"; self._repo(repo); fake = root / "agy"
+            fake.write_text(f"#!{sys.executable}\nimport sys,time\nif '--version' in sys.argv: print('agy 1.1.27'); raise SystemExit\nprint('{{\"status\":\"WAITING\"}}',flush=True)\ntime.sleep(30)\n", encoding="utf-8"); fake.chmod(0o755)
+            config = parse_config({"version": 1, "workers": {"agy": {"enabled": True, "executable": str(fake)}}})
+            output = io.StringIO(); server = McpServer(config, UserPaths.from_environment(home=root), output)
+            server.initialized = server.ready = True
+            arguments = {"prompt": "x", "repository": str(repo), "base_sha": self._git(repo, "rev-parse", "HEAD"), "timeout": 5}
+            server.handle({"jsonrpc": "2.0", "id": 20, "method": "tools/call", "params": {"name": "delegate_agy", "arguments": arguments}})
+            deadline = time.monotonic() + 2
+            while time.monotonic() < deadline and not server.active: time.sleep(.01)
+            server.handle({"jsonrpc": "2.0", "id": 21, "method": "tools/call", "params": {"name": "delegate_agy", "arguments": arguments}})
+            busy = [json.loads(line) for line in output.getvalue().splitlines() if json.loads(line).get("id") == 21]
+            self.assertEqual(len(busy), 1); self.assertTrue(busy[0]["result"]["isError"])
+            self.assertEqual(json.loads(busy[0]["result"]["content"][0]["text"])["state"], "busy")
+            next(iter(server.active.values()))[1].set()
+            server.pool.shutdown(wait=True)
+
     def test_pr2_owned_legacy_mcp_requires_explicit_upgrade_authority(self) -> None:
         source = json.dumps({"mcp": {"harness-relay": LEGACY_MCP_ENTRY}})
         with self.assertRaises(Exception): integrate(source, "/instructions")
