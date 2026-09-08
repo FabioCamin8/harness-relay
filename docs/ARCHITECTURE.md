@@ -41,7 +41,9 @@ Reserve each run atomically with validated identifiers and a repository identity
 
 Writable tasks start in a newly owned worktree from a captured commit. Never silently discard, copy, stash, reset, or clean a user's dirty source checkout. A task that needs uncommitted input must receive an explicit agreed snapshot/commit boundary; otherwise describe that input as absent.
 
-Collect both committed diff from the base and staged/unstaged/untracked changes. Capture final evidence after requested validation. Preserve incomplete work and diagnostics. Cleanup is explicit and refuses foreign paths, live writers, dirty work, and unmerged results.
+Collect both committed diff from the base and staged/unstaged/untracked changes. Capture final evidence after requested validation. Preserve incomplete work and diagnostics. Cleanup is explicit and refuses foreign paths, live writers, dirty work, unmerged results, and a clean worktree whose `HEAD` moved from the reserved base.
+
+The read-only integrity snapshot includes `HEAD` and content hashes for tracked, untracked, and ignored files. A repository symlink is represented by its link text; target content outside the worktree is outside the declared snapshot boundary. This post-hoc check does not replace a native read-only sandbox and cannot police writes through arbitrary external paths.
 
 Read-only is a native execution intent plus evidence, not an unconditional security guarantee. Do not rely on a porcelain status string alone: an already-dirty file can change without changing its status label, and a commit can leave a clean status. Define and test the content/revision boundary checked, including its limitations. Never restore a user's files to conceal a violation.
 

@@ -2,7 +2,7 @@
 
 Native harness delegation for OpenCode. Bring your own orchestrator model, keep your native agents, and delegate bounded tasks with structured results.
 
-**Status: `v0.1.0-alpha.1` release candidate under maintainer review.** The package provides strict worker configuration, reversible setup/uninstall, offline-tested native adapters, managed worktrees, MCP stdio lifecycle handling, and read-only doctor diagnostics. Live model-driven OpenCode-to-worker capability remains unverified in G14.
+**Status: `v0.1.0-alpha.1` release candidate under maintainer review.** The package provides strict worker configuration, reversible setup/uninstall, offline-tested native adapters, managed worktrees, MCP stdio lifecycle handling, and read-only doctor diagnostics. G14 verified one live OpenCode-to-Codex repository edit with independent validation; broader capabilities remain unverified.
 
 ## Installation prerequisites
 
@@ -55,7 +55,7 @@ harness-relay uninstall --scope global
 
 `setup` supports interactive and equivalent file-driven use. It writes only the user-local relay config when needed, a namespaced enabled MCP entry, a marked instruction fragment, and its ownership record. An unchanged PR-2-owned disabled entry is safely upgraded; an equivalent user-created or edited entry is not claimed. `uninstall` removes only unchanged owned content.
 
-`delegate` runs one enabled worker directly and prints normalized JSON. MCP exposes enabled workers only and requires an explicit repository/base commit, then reserves a distinct retained worktree. Status/cancel remain responsive and timeout/cancel stop the owned process group. `doctor` probes versions only for enabled workers and never calls inference. Native settings and internal subagents remain intact; HarnessRelay recursion is refused.
+`delegate` runs one enabled worker directly and prints normalized JSON. MCP exposes enabled workers only and requires an explicit repository/base commit, then reserves a distinct retained worktree. Its typed validation argument is shell-free argv executed independently in that worktree. Status/cancel remain responsive and timeout/cancel stop the owned process group. `doctor` probes versions only for enabled workers and never calls inference. Native settings and internal subagents remain intact; HarnessRelay recursion is refused. A writable Codex task must explicitly request `sandbox: "workspace-write"` when the user's native default is read-only.
 
 The relay config is strict JSON, versioned at `1`, and defaults every worker to disabled:
 
@@ -81,7 +81,12 @@ The packaged JSON Schema checks structural types, names, and allowed values. Run
 - No scheduler, queue, database, dashboard, marketplace, or general workflow engine.
 - No silent changes to native authentication, provider routes, or unattended permission policy.
 - A worktree is not a security sandbox; actual restrictions remain with the native runtime.
+- Read-only integrity snapshots include tracked, untracked, and ignored worktree files plus `HEAD`. They hash a symlink's link text, not content outside the worktree; native sandbox enforcement remains necessary for external targets and paths.
 - Remote desktop and Apple operations are optional follow-on integrations, not local-release prerequisites.
+
+## Reversible future adoption
+
+Keep the current installation unchanged as rollback. Install a reviewed wheel into a separate user-owned virtual environment, point a disposable OpenCode config at its `harness-relay` executable, run `setup --dry-run`, then apply and complete G14 against a fixture repository. Only after review should the maintainer switch the normal OpenCode MCP entry to the pinned environment. Roll back by restoring the previous OpenCode selection; `harness-relay uninstall` removes only unchanged owned fragments and preserves relay config, native authentication, worktrees, and results. Migration and release publication remain separate maintainer decisions.
 
 ## Documentation
 

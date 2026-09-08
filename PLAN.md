@@ -1,6 +1,6 @@
 # Implementation plan
 
-Baseline: 2026-09-07. Status: PR-1 is merged; PR-2 G03/G04 passed exact-SHA review at `8849e043f04e320f111fba8f11e070c012a45e03`, followed by a reviewed evidence-only delta. PR-3 G05-G08 have an offline-tested code candidate at `8344fc33d048183065c9c7cb7a8d1977c9ecae42`; maintainer review and all live-worker claims remain pending.
+Baseline: 2026-09-07. Status: PR-1 is merged. PR-2 through PR-5 are stacked and locally reviewed. The cumulative code candidate is `7afa87fa3629469acc3f6d7d63399813fffc18b8`; G01-G14 have candidate-specific evidence, while maintainer review, hosted final-head CI, merge, tag, publication, and operational migration remain pending.
 
 ## Product contract
 
@@ -115,9 +115,9 @@ Update this table only with actual PR/commit evidence. PR bodies hold detailed t
 | --- | --- | --- |
 | PR-1 | Reviewed PASS | [#1](https://github.com/FabioCamin8/harness-relay/pull/1) |
 | PR-2 | Reviewed G03/G04 PASS at `8849e04`; evidence-only delta reviewed | [#2](https://github.com/FabioCamin8/harness-relay/pull/2) |
-| PR-3 | Local lead G05-G08 PASS; maintainer review pending | [#3](https://github.com/FabioCamin8/harness-relay/pull/3) |
-| PR-4 | Local lead G09-G13 PASS; maintainer review pending | [#4](https://github.com/FabioCamin8/harness-relay/pull/4), code `62bb05d` |
-| PR-5 | Offline candidate PASS; live G14 and maintainer review pending | [#5](https://github.com/FabioCamin8/harness-relay/pull/5), code `d34fec4` |
+| PR-3 | Reviewed G05-G08 PASS; maintainer review pending | [#3](https://github.com/FabioCamin8/harness-relay/pull/3) |
+| PR-4 | Cumulative review findings corrected; G09-G13 PASS at `7afa87f` | [#4](https://github.com/FabioCamin8/harness-relay/pull/4) |
+| PR-5 | G14 PASS at code candidate `7afa87f`; maintainer review and final-head CI pending | [#5](https://github.com/FabioCamin8/harness-relay/pull/5) |
 
 ## Stop rules and deferred work
 
