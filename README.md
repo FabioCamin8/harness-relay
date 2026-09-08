@@ -2,7 +2,7 @@
 
 Native harness delegation for OpenCode. Bring your own orchestrator model, keep your native agents, and delegate bounded tasks with structured results.
 
-**Status: PR-4 lifecycle candidate.** The package provides strict worker configuration, reversible setup/uninstall, offline-tested native adapters, managed worktrees, MCP stdio lifecycle handling, and read-only doctor diagnostics. Live OpenCode-to-worker capability remains unverified until G14.
+**Status: `v0.1.0-alpha.1` release candidate under maintainer review.** The package provides strict worker configuration, reversible setup/uninstall, offline-tested native adapters, managed worktrees, MCP stdio lifecycle handling, and read-only doctor diagnostics. Live model-driven OpenCode-to-worker capability remains unverified in G14.
 
 ## Installation prerequisites
 
@@ -94,7 +94,7 @@ The packaged JSON Schema checks structural types, names, and allowed values. Run
 | [Compatibility](docs/compatibility.md) | Evidence-based support matrix and upstream references. |
 | [Development workflow](docs/WORKFLOW.md) | Sol coordination/review, one Luna implementation writer, and escalation boundaries. |
 
-PR-1 is the merged public foundation; PR-2 is the current configuration/setup candidate. Do not import private runtime state or install this project over a working environment during development.
+PRs #2 through #5 are stacked review slices; none is automatically merged or published. Do not import private runtime state or install this candidate over a working environment during review.
 
 ## License and affiliation
 

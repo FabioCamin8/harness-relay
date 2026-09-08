@@ -42,6 +42,14 @@ G09 through G13 passed local lead review at code candidate `b92f828f5163b192a941
 
 Offline tests cover explicit-base collision-resistant worktrees, traversal/collision rejection, dirty-work preservation, content and HEAD integrity, owned process-group timeout, cancellation, recursion refusal, enabled-only MCP discovery and invocation, schema/error handling, responsive status/cancel, retained terminal state, and inference-free doctor behavior. OpenCode 1.18.29 was separately observed performing the `2025-11-25` initialize/initialized/tools-list sequence without a model call. No live worker inference or G14 end-to-end workflow ran. Maintainer review of stacked PR [#4](https://github.com/FabioCamin8/harness-relay/pull/4) remains pending.
 
+### PR-5 evidence
+
+The offline public-alpha candidate is `d34fec4` in stacked PR [#5](https://github.com/FabioCamin8/harness-relay/pull/5). The cumulative source suite passed 62/62 on CPython 3.13.5 and 3.9.25. The added process-level test launches the installed MCP entry point, completes initialize/list/call against a fake AGY executable, retains its edit in an owned worktree, and verifies the source repository remains at the original commit.
+
+Wheel and sdist built from code candidate `866cda2` were inventoried and extracted. Their common private-path, LAN-address, private-key, token, and runtime-file scan passed. The installed wheel passed 62/62 as UID 65534 with a separate writable HOME on CPython 3.13.5 and passed 62/62 on CPython 3.9.25. Its SHA-256 is `f5c1a2c9cc357da14bc5213411f31261a7c4e88259dca7ff6fe653336962f781`; the sdist SHA-256 is `f67cd5666e9951fc22e825775dc2df76b861d2c64b214ba0887f3a976e9799e5`. The later `d34fec4` delta changes only portable Git identity setup in test fixtures; final-head hosted CI and artifact hashes are recorded in the PR rather than recursively embedding them in the artifact.
+
+No live model inference ran. Therefore G14 steps requiring a real OpenCode master selection and authorized native worker remain `NOT RUN`, not passed. No merge, tag, package publication, deployment, authentication change, billing action, or operational installation migration is authorized by this evidence.
+
 Use adversarial but harmless fixtures: filenames with spaces and unusual characters, identifiers containing separators, a fake CLI that spawns a child, a worker that commits and exits, an existing dirty checkout, and a JSONC config containing unrelated comments/keys. Do not treat a denylist of the maintainer's removed tools as a universal product test.
 
 If a gate is not applicable to the selected initial platform or an optional adapter, state the exact boundary. That does not permit claiming support for the omitted case.
