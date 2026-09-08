@@ -11,6 +11,9 @@ from typing import Any, Iterable, Mapping
 
 RESULT_SCHEMA_VERSION = 1
 MAX_EVIDENCE_BYTES = 256 * 1024
+MAX_STRUCTURED_TEXT_BYTES = 16 * 1024
+MAX_EVENT_EVIDENCE_BYTES = 128 * 1024
+MAX_CLAIM_EVIDENCE_BYTES = 64 * 1024
 
 _OUTCOMES = frozenset(
     (
@@ -136,6 +139,24 @@ def build_result(
             "stderr": "",
         }
     )
+    safe_claims = _bounded_items(
+        native.claims,
+        MAX_CLAIM_EVIDENCE_BYTES,
+        _safe_claim,
+        lambda omitted: {
+            "kind": "worker_claim",
+            "text": f"[TRUNCATED: {omitted} additional claims omitted]",
+        },
+    )
+    safe_events = _bounded_items(
+        native.events,
+        MAX_EVENT_EVIDENCE_BYTES,
+        _safe_event,
+        lambda omitted: {
+            "harness_relay_truncated": True,
+            "omitted_events": omitted,
+        },
+    )
     return {
         "result_schema_version": RESULT_SCHEMA_VERSION,
         "run": {
@@ -147,8 +168,12 @@ def build_result(
         "native": {
             "outcome": native.outcome,
             "structured": native.structured,
-            "summary": native.summary,
-            "claims": list(native.claims),
+            "summary": (
+                _safe_structured_text(native.summary)
+                if native.summary is not None
+                else None
+            ),
+            "claims": safe_claims,
         },
         "invocation": dict(invocation),
         "validation": validation_value,
@@ -170,7 +195,7 @@ def build_result(
         "evidence": {
             "stdout": _safe_text(stdout),
             "stderr": _safe_text(stderr),
-            "events": [_safe_event(event) for event in native.events],
+            "events": safe_events,
             "parse_error": native.parse_error,
         },
     }
@@ -339,12 +364,60 @@ def _native_text(value: str | bytes) -> str:
 def _safe_event(value: Any) -> Any:
     """Sanitize retained event evidence while preserving its JSON shape."""
     if isinstance(value, str):
-        return _safe_text(value)
+        return _safe_structured_text(value)
     if isinstance(value, list):
         return [_safe_event(item) for item in value]
     if isinstance(value, dict):
-        return {_safe_text(str(key)): _safe_event(child) for key, child in value.items()}
+        return {
+            _safe_structured_text(str(key)): _safe_event(child)
+            for key, child in value.items()
+        }
     return value
+
+
+def _safe_claim(value: Mapping[str, str]) -> dict[str, str]:
+    return {
+        "kind": "worker_claim",
+        "text": _safe_structured_text(value["text"]),
+    }
+
+
+def _safe_structured_text(value: str) -> str:
+    return _bounded(_redact(value), MAX_STRUCTURED_TEXT_BYTES)
+
+
+def _bounded_items(
+    values: Iterable[Any],
+    budget: int,
+    sanitize: Any,
+    marker: Any,
+) -> list[Any]:
+    """Retain a JSON-size-bounded prefix with an explicit omission marker."""
+    source = list(values)
+    retained: list[Any] = []
+    for index, value in enumerate(source):
+        candidate = sanitize(value)
+        if _json_size([*retained, candidate]) <= budget:
+            retained.append(candidate)
+            continue
+        omitted = len(source) - index
+        truncated = marker(omitted)
+        while retained and _json_size([*retained, truncated]) > budget:
+            retained.pop()
+            omitted += 1
+            truncated = marker(omitted)
+        if _json_size([*retained, truncated]) <= budget:
+            retained.append(truncated)
+        break
+    return retained
+
+
+def _json_size(value: Any) -> int:
+    return len(
+        json.dumps(value, ensure_ascii=False, separators=(",", ":")).encode(
+            "utf-8", "replace"
+        )
+    )
 
 
 def safe_evidence_text(value: str | bytes) -> str:
@@ -352,11 +425,11 @@ def safe_evidence_text(value: str | bytes) -> str:
     return _safe_text(value)
 
 
-def _bounded(value: str) -> str:
+def _bounded(value: str, limit: int = MAX_EVIDENCE_BYTES) -> str:
     encoded = value.encode("utf-8", "replace")
-    if len(encoded) <= MAX_EVIDENCE_BYTES:
+    if len(encoded) <= limit:
         return value
-    return encoded[:MAX_EVIDENCE_BYTES].decode("utf-8", "replace") + "\n[TRUNCATED]"
+    return encoded[:limit].decode("utf-8", "replace") + "\n[TRUNCATED]"
 
 
 def _redact(value: str) -> str:

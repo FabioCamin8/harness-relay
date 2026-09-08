@@ -145,6 +145,50 @@ class Pr4Test(unittest.TestCase):
             if Path(f"/proc/{child_pid}/stat").exists():
                 self.assertEqual(Path(f"/proc/{child_pid}/stat").read_text().split()[2], "Z")
 
+    def test_timeout_kills_term_ignoring_child_that_closed_captured_pipes(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            pid_file = root / "child.pid"
+            ready_file = root / "child.ready"
+            fake = root / "agy"
+            child_code = (
+                "import os,signal,time; "
+                "signal.signal(signal.SIGTERM, signal.SIG_IGN); "
+                "open(os.environ['READY_FILE'], 'w').write('ready'); "
+                "time.sleep(30)"
+            )
+            fake.write_text(
+                f"#!{sys.executable}\n"
+                "import os, pathlib, subprocess, sys, time\n"
+                f"child = subprocess.Popen([sys.executable, '-c', {child_code!r}], "
+                "stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, "
+                "stderr=subprocess.DEVNULL)\n"
+                "pathlib.Path(os.environ['PID_FILE']).write_text(str(child.pid))\n"
+                "ready = pathlib.Path(os.environ['READY_FILE'])\n"
+                "while not ready.exists(): time.sleep(.01)\n"
+                "print('{\"status\":\"WAITING\"}', flush=True)\n"
+                "time.sleep(30)\n",
+                encoding="utf-8",
+            )
+            fake.chmod(0o755)
+            result = run_task(
+                DetectedWorker("agy", fake, "1.1.27", "test"),
+                TaskRequest("x", root, timeout=.15),
+                environment={
+                    "PID_FILE": str(pid_file),
+                    "READY_FILE": str(ready_file),
+                },
+            )
+            self.assertEqual(result["process"]["classification"], "timeout")
+            child_pid = int(pid_file.read_text())
+            deadline = time.monotonic() + 2
+            while time.monotonic() < deadline and Path(f"/proc/{child_pid}").exists():
+                time.sleep(.02)
+            if Path(f"/proc/{child_pid}/stat").exists():
+                self.assertEqual(
+                    Path(f"/proc/{child_pid}/stat").read_text().split()[2], "Z"
+                )
+
     def test_process_group_timeout_and_recursion_refusal(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory); pid_file = root / "child.pid"; fake = root / "agy"

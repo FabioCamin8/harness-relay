@@ -250,17 +250,38 @@ def _stop_process(process: subprocess.Popen[bytes]) -> None:
     # The process leader may have exited while a descendant still owns one of
     # the captured pipe descriptors. ``poll()`` only describes the leader;
     # the process group remains the ownership boundary for cancellation.
+    process_group = process.pid
     try:
-        os.killpg(process.pid, signal.SIGTERM)
-        process.wait(timeout=0.5)
+        os.killpg(process_group, signal.SIGTERM)
     except ProcessLookupError:
-        pass
-    except subprocess.TimeoutExpired:
+        return
+
+    deadline = time.monotonic() + 0.5
+    while _process_group_exists(process_group) and time.monotonic() < deadline:
         try:
-            os.killpg(process.pid, signal.SIGKILL)
-            process.wait(timeout=0.5)
-        except (ProcessLookupError, subprocess.TimeoutExpired):
+            process.wait(timeout=min(0.05, max(0.0, deadline - time.monotonic())))
+        except subprocess.TimeoutExpired:
             pass
+        if process.poll() is not None:
+            time.sleep(min(0.01, max(0.0, deadline - time.monotonic())))
+
+    if _process_group_exists(process_group):
+        try:
+            os.killpg(process_group, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+    try:
+        process.wait(timeout=0.5)
+    except subprocess.TimeoutExpired:
+        pass
+
+
+def _process_group_exists(process_group: int) -> bool:
+    try:
+        os.killpg(process_group, 0)
+    except ProcessLookupError:
+        return False
+    return True
 
 
 def _drain_process(process: subprocess.Popen[bytes]) -> tuple[bytes, bytes]:

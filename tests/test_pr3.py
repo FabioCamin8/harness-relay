@@ -22,6 +22,7 @@ from harness_relay.adapters import (
 )
 from harness_relay.execution import ValidationRequest, run_task
 from harness_relay.git_evidence import GitEvidenceError, capture_base, capture_snapshot
+from harness_relay.mcp import MAX_MESSAGE, McpServer
 from harness_relay.results import MAX_EVIDENCE_BYTES, RESULT_SCHEMA_VERSION, validate_result
 
 
@@ -163,6 +164,31 @@ class Pr3Test(unittest.TestCase):
             self.assertIn("[TRUNCATED]", result["native"]["claims"][1]["text"])
             self.assertNotIn(token_like, result["evidence"]["stdout"])
             self.assertIn("[TRUNCATED]", result["evidence"]["events"][0]["text"])
+            validate_result(result)
+
+    def test_structured_evidence_has_aggregate_budget_and_fits_mcp_response(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            large = "x" * (240 * 1024)
+            payload = "\n".join(
+                json.dumps(
+                    {"type": "turn.completed", "text": large, "summary": large}
+                )
+                for _ in range(5)
+            )
+            fake = self._fake_worker(root, payload)
+            result = run_task(
+                DetectedWorker("codex", fake, "0.153.4", "test"),
+                TaskRequest(prompt="ignored", cwd=root, timeout=2),
+            )
+            self.assertEqual(result["native"]["outcome"], "success")
+            self.assertIn("[TRUNCATED]", json.dumps(result["native"]))
+            self.assertIn("[TRUNCATED]", json.dumps(result["evidence"]["events"]))
+            response = McpServer._success(
+                1, {"run_id": "bounded", "state": "completed", "result": result}
+            )
+            line = json.dumps(response, ensure_ascii=False, separators=(",", ":"))
+            self.assertLessEqual(len(line.encode()), MAX_MESSAGE)
             validate_result(result)
 
     def test_adapter_specific_nested_events_and_stderr_are_classified(self) -> None:
