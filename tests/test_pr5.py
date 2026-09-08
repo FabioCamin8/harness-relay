@@ -10,8 +10,81 @@ import sys
 import tempfile
 import unittest
 
+from harness_relay.jsonc import parse as parse_jsonc
+
 
 class Pr5Test(unittest.TestCase):
+    def test_jsonc_leading_comments_precede_the_document_root(self) -> None:
+        for source in (
+            '// leading line comment\n{"enabled": true}\n',
+            '/* leading block comment */\n{"enabled": true}\n',
+        ):
+            with self.subTest(source=source):
+                self.assertEqual(parse_jsonc(source), {"enabled": True})
+
+    def test_direct_delegate_uses_explicit_base_worktree_instead_of_source(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            repository = root / "repository"
+            repository.mkdir()
+            self._git(repository, "init")
+            (repository / "fact.txt").write_text("fixture fact\n", encoding="utf-8")
+            self._git(repository, "add", "fact.txt")
+            self._git(repository, "-c", "commit.gpgsign=false", "commit", "-m", "base")
+            base = self._git(repository, "rev-parse", "HEAD")
+
+            fake = root / "agy"
+            fake.write_text(
+                f"#!{sys.executable}\n"
+                "import json, pathlib, sys\n"
+                "if '--version' in sys.argv:\n"
+                " print('agy 1.1.27'); raise SystemExit\n"
+                "pathlib.Path('cli-worker.txt').write_text('retained\\n')\n"
+                "print(json.dumps({'status': 'SUCCESS'}))\n",
+                encoding="utf-8",
+            )
+            fake.chmod(0o755)
+            config = root / "config.json"
+            config.write_text(
+                json.dumps(
+                    {
+                        "version": 1,
+                        "workers": {"agy": {"enabled": True, "executable": str(fake)}},
+                        "paths": {"worktrees": str(root / "worktrees")},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            environment = os.environ.copy()
+            environment["HOME"] = str(root / "home")
+            environment["XDG_CONFIG_HOME"] = str(root / "xdg-config")
+            environment["XDG_DATA_HOME"] = str(root / "xdg-data")
+            environment["XDG_STATE_HOME"] = str(root / "xdg-state")
+            result = self._run(
+                (
+                    sys.executable,
+                    "-m",
+                    "harness_relay",
+                    "delegate",
+                    "--config",
+                    str(config),
+                    "--worker",
+                    "agy",
+                    "--prompt=--help",
+                    "--repository",
+                    str(repository),
+                    "--base-sha",
+                    base,
+                ),
+                environment,
+            )
+            payload = json.loads(result.stdout)
+            self.assertEqual(payload["process"]["classification"], "completed")
+            workspace = Path(payload["invocation"]["cwd"])
+            self.assertTrue((workspace / "cli-worker.txt").is_file())
+            self.assertFalse((repository / "cli-worker.txt").exists())
+            self.assertEqual(self._git(repository, "rev-parse", "HEAD"), base)
+
     def test_installed_mcp_process_delegates_to_fake_worker_in_owned_worktree(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -58,6 +131,12 @@ class Pr5Test(unittest.TestCase):
             self.assertEqual(opencode.read_bytes(), original_opencode)
             self._run(setup_command, environment)
             after_setup = opencode.read_bytes()
+            generated_command = tuple(
+                parse_jsonc(opencode.read_text(encoding="utf-8"))["mcp"][
+                    "harness-relay"
+                ]["command"]
+            )
+            self.assertEqual(generated_command[-2:], ("--config", str(config.resolve())))
             relay_before_model_change = config.read_bytes()
             repeated = self._run(setup_command, environment)
             self.assertIn("changed: none", repeated.stdout)
@@ -71,8 +150,11 @@ class Pr5Test(unittest.TestCase):
             )
             self.assertEqual(config.read_bytes(), relay_before_model_change)
 
+            environment["PATH"] = str(Path(sys.executable).parent) + os.pathsep + environment.get(
+                "PATH", ""
+            )
             process = subprocess.Popen(
-                (sys.executable, "-m", "harness_relay", "mcp", "--stdio", "--config", str(config)),
+                generated_command,
                 stdin=subprocess.PIPE,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,

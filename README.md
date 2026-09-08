@@ -49,7 +49,8 @@ harness-relay setup --dry-run --non-interactive --relay-config PATH --scope glob
 harness-relay setup --non-interactive --relay-config PATH --scope project
 harness-relay validate-config PATH
 harness-relay doctor --json --config PATH
-harness-relay delegate --worker codex --prompt "Review this repository" --cwd PATH
+harness-relay delegate --worker codex --prompt "Review this repository" \
+  --repository PATH --base-sha COMMIT
 harness-relay uninstall --scope global
 ```
 

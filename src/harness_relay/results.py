@@ -63,7 +63,10 @@ def parse_native_output(
     adapter: str | None = None,
 ) -> NativeReport:
     """Parse JSON/JSONL output and classify only typed native evidence."""
-    stdout_text = _safe_text(stdout)
+    # Native JSON is authoritative for classification. Decode only for
+    # parsing here; redaction and evidence bounds apply after the event has
+    # been successfully interpreted.
+    stdout_text = _native_text(stdout)
     if not stdout_text.strip():
         return NativeReport("empty_output", False, (), (), None, None)
 
@@ -167,7 +170,7 @@ def build_result(
         "evidence": {
             "stdout": _safe_text(stdout),
             "stderr": _safe_text(stderr),
-            "events": list(native.events),
+            "events": [_safe_event(event) for event in native.events],
             "parse_error": native.parse_error,
         },
     }
@@ -322,6 +325,26 @@ def _safe_text(value: str | bytes) -> str:
     else:
         text = str(value)
     return _bounded(_redact(text))
+
+
+def _native_text(value: str | bytes) -> str:
+    """Decode worker output without changing bytes that affect JSON parsing."""
+    if isinstance(value, bytes):
+        return value.decode("utf-8", "replace")
+    if isinstance(value, str):
+        return value
+    return str(value)
+
+
+def _safe_event(value: Any) -> Any:
+    """Sanitize retained event evidence while preserving its JSON shape."""
+    if isinstance(value, str):
+        return _safe_text(value)
+    if isinstance(value, list):
+        return [_safe_event(item) for item in value]
+    if isinstance(value, dict):
+        return {_safe_text(str(key)): _safe_event(child) for key, child in value.items()}
+    return value
 
 
 def safe_evidence_text(value: str | bytes) -> str:

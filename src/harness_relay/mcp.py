@@ -90,8 +90,11 @@ class McpServer:
             return
         if method == "notifications/cancelled":
             if isinstance(params, dict):
+                cancelled_id = params.get("requestId")
+                if not self._valid_request_id(cancelled_id):
+                    return
                 with self.lock:
-                    active = self.active.get(params.get("requestId"))
+                    active = self.active.get(cancelled_id)
                 if active:
                     active[1].set()
             return

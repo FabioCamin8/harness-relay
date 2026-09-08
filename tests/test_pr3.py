@@ -22,7 +22,7 @@ from harness_relay.adapters import (
 )
 from harness_relay.execution import ValidationRequest, run_task
 from harness_relay.git_evidence import GitEvidenceError, capture_base, capture_snapshot
-from harness_relay.results import RESULT_SCHEMA_VERSION, validate_result
+from harness_relay.results import MAX_EVIDENCE_BYTES, RESULT_SCHEMA_VERSION, validate_result
 
 
 class Pr3Test(unittest.TestCase):
@@ -45,6 +45,7 @@ class Pr3Test(unittest.TestCase):
                     self.assertEqual(invocation.cwd, cwd)
                     self.assertIn(prompt, invocation.argv)
                     self.assertEqual(invocation.argv[-1], prompt)
+                    self.assertEqual(invocation.argv[-2], "--")
                     self.assertNotIn("shell=True", invocation.argv)
                     self.assertIn("--output-format", invocation.argv) if name != "codex" else self.assertIn("--json", invocation.argv)
 
@@ -66,7 +67,7 @@ class Pr3Test(unittest.TestCase):
         )
         self.assertEqual(
             codex.argv,
-            ("/bin/codex", "exec", "--json", "--cd", "/tmp", "x"),
+            ("/bin/codex", "exec", "--json", "--cd", "/tmp", "--", "x"),
         )
         claude = build_invocation(
             DetectedWorker("claude", Path("/bin/claude"), "2.1.104", "test"),
@@ -74,7 +75,7 @@ class Pr3Test(unittest.TestCase):
         )
         self.assertEqual(
             claude.argv,
-            ("/bin/claude", "-p", "--output-format", "stream-json", "--model", "sonnet", "--effort", "high", "x"),
+            ("/bin/claude", "-p", "--output-format", "stream-json", "--model", "sonnet", "--effort", "high", "--", "x"),
         )
         self.assertNotIn("--bare", claude.argv)
         self.assertNotIn("--strict-mcp-config", claude.argv)
@@ -88,6 +89,19 @@ class Pr3Test(unittest.TestCase):
                 DetectedWorker("claude", Path("/bin/claude"), "2.1.104", "test"),
                 TaskRequest(prompt="x", cwd=Path("/tmp"), sandbox="workspace-write"),
             )
+
+    def test_leading_help_prompt_is_data_after_native_option_terminator(self) -> None:
+        for name, version in (
+            ("codex", "0.153.4"),
+            ("claude", "2.1.104"),
+            ("agy", "1.1.27"),
+        ):
+            with self.subTest(name=name):
+                invocation = build_invocation(
+                    DetectedWorker(name, Path(f"/bin/{name}"), version, "test"),
+                    TaskRequest(prompt="--help", cwd=Path("/tmp")),
+                )
+                self.assertEqual(invocation.argv[-2:], ("--", "--help"))
 
     def test_structured_output_classification_separates_process_and_native_outcome(self) -> None:
         cases = (
@@ -126,6 +140,30 @@ class Pr3Test(unittest.TestCase):
                     self.assertEqual(result["process"]["completed"], True)
                     self.assertEqual(result["result_schema_version"], RESULT_SCHEMA_VERSION)
                     validate_result(result)
+
+    def test_native_classification_parses_intact_token_like_and_large_terminal_events(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            token_like = "token=valid-native-value"
+            payload = json.dumps(
+                {
+                    "type": "result",
+                    "subtype": "success",
+                    "result": token_like,
+                    "text": "worker output " + ("x" * (MAX_EVIDENCE_BYTES + 1024)),
+                }
+            )
+            fake = self._fake_worker(root, payload)
+            result = run_task(
+                DetectedWorker("claude", fake, "2.1.104", "test"),
+                TaskRequest(prompt="ignored", cwd=root, timeout=2),
+            )
+            self.assertEqual(result["native"]["outcome"], "success")
+            self.assertTrue(result["native"]["structured"])
+            self.assertIn("[TRUNCATED]", result["native"]["claims"][1]["text"])
+            self.assertNotIn(token_like, result["evidence"]["stdout"])
+            self.assertIn("[TRUNCATED]", result["evidence"]["events"][0]["text"])
+            validate_result(result)
 
     def test_adapter_specific_nested_events_and_stderr_are_classified(self) -> None:
         fixtures = (

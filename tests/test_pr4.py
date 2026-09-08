@@ -19,7 +19,12 @@ from harness_relay.configuration import parse_config, UserPaths
 from harness_relay.doctor import diagnose
 from harness_relay.execution import REENTRY_ENV, ValidationRequest, run_task
 from harness_relay.mcp import McpServer, PROTOCOL_VERSION
-from harness_relay.opencode import LEGACY_MCP_ENTRY, MCP_ENTRY, integrate
+from harness_relay.opencode import (
+    LEGACY_MCP_ENTRY,
+    MCP_ENTRY,
+    configured_mcp_entry,
+    integrate,
+)
 from harness_relay.workspace import (
     WorkspaceError,
     capture_integrity,
@@ -31,6 +36,26 @@ from harness_relay.workspace import (
 
 
 class Pr4Test(unittest.TestCase):
+    def test_malformed_cancellation_id_does_not_terminate_server(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            config = parse_config({"version": 1, "workers": {}})
+            output = io.StringIO()
+            server = McpServer(
+                config, UserPaths.from_environment(home=root), output
+            )
+            server.initialized = server.ready = True
+            server.handle(
+                {
+                    "jsonrpc": "2.0",
+                    "method": "notifications/cancelled",
+                    "params": {"requestId": []},
+                }
+            )
+            server.handle({"jsonrpc": "2.0", "id": 9, "method": "tools/list"})
+            self.assertEqual(json.loads(output.getvalue().splitlines()[-1])["id"], 9)
+            server.pool.shutdown(wait=True)
+
     def test_repository_identity_and_atomic_reservation_reject_collisions_and_traversal(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -76,6 +101,49 @@ class Pr4Test(unittest.TestCase):
             before = capture_integrity(root)
             (root / "ignored.txt").write_text("after\n", encoding="utf-8")
             self.assertTrue(integrity_changed(before, capture_integrity(root)))
+
+    def test_integrity_paths_are_nul_delimited_and_byte_safe(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory); self._repo(root)
+            name = "unicode-é\tline\nname.txt"
+            path = root / name
+            path.write_bytes(b"before\n")
+            self._git(root, "add", "--", name)
+            self._git(root, "-c", "commit.gpgsign=false", "commit", "-m", "unusual path")
+
+            before = capture_integrity(root)
+            self.assertIn(name, before["paths"])
+            path.write_bytes(b"after\n")
+            self.assertTrue(integrity_changed(before, capture_integrity(root)))
+
+    def test_timeout_stops_group_after_leader_exit_and_drains_bound_pipes(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory); pid_file = root / "child.pid"; fake = root / "agy"
+            fake.write_text(
+                f"#!{sys.executable}\n"
+                "import os, subprocess, sys\n"
+                "child = subprocess.Popen(['sleep', '30'])\n"
+                "open(os.environ['PID_FILE'], 'w').write(str(child.pid))\n"
+                "print('{\"status\":\"WAITING\"}', flush=True)\n"
+                "sys.exit(0)\n",
+                encoding="utf-8",
+            )
+            fake.chmod(0o755)
+            started = time.monotonic()
+            result = run_task(
+                DetectedWorker("agy", fake, "1.1.27", "test"),
+                TaskRequest("x", root, timeout=.15),
+                environment={"PID_FILE": str(pid_file)},
+            )
+            elapsed = time.monotonic() - started
+            self.assertEqual(result["process"]["classification"], "timeout")
+            self.assertLess(elapsed, 3)
+            child_pid = int(pid_file.read_text())
+            deadline = time.monotonic() + 2
+            while time.monotonic() < deadline and Path(f"/proc/{child_pid}").exists():
+                time.sleep(.02)
+            if Path(f"/proc/{child_pid}/stat").exists():
+                self.assertEqual(Path(f"/proc/{child_pid}/stat").read_text().split()[2], "Z")
 
     def test_process_group_timeout_and_recursion_refusal(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -251,6 +319,21 @@ class Pr4Test(unittest.TestCase):
         with self.assertRaises(Exception): integrate(source, "/instructions")
         upgraded, _, _ = integrate(source, "/instructions", allow_legacy_upgrade=True)
         self.assertEqual(json.loads(upgraded)["mcp"]["harness-relay"], MCP_ENTRY)
+
+    def test_owned_configured_mcp_can_move_to_a_new_relay_config(self) -> None:
+        old_entry = configured_mcp_entry("/tmp/old-relay.json")
+        new_entry = configured_mcp_entry("/tmp/new-relay.json")
+        source = json.dumps({"mcp": {"harness-relay": old_entry}})
+        with self.assertRaises(Exception):
+            integrate(source, "/instructions", mcp_entry=new_entry)
+        upgraded, changed, _ = integrate(
+            source,
+            "/instructions",
+            allow_legacy_upgrade=True,
+            mcp_entry=new_entry,
+        )
+        self.assertTrue(changed)
+        self.assertEqual(json.loads(upgraded)["mcp"]["harness-relay"], new_entry)
 
     def _repo(self, path: Path) -> None:
         path.mkdir(parents=True, exist_ok=True); self._git(path, "init")

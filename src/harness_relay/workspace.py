@@ -34,6 +34,21 @@ def _git(repo: Path, *args: str) -> str:
     return completed.stdout.strip()
 
 
+def _git_bytes(repo: Path, *args: str) -> bytes:
+    """Run Git without text decoding so NUL-delimited paths stay lossless."""
+    completed = subprocess.run(
+        ("git", "-C", str(repo), *args),
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=False,
+    )
+    if completed.returncode:
+        error = completed.stderr.decode("utf-8", "replace").strip()
+        raise WorkspaceError(error or "git command failed")
+    return completed.stdout
+
+
 def repository_identity(repo: Path) -> str:
     """Return a collision-resistant identity for the actual Git common directory."""
     root = Path(_git(repo, "rev-parse", "--show-toplevel")).resolve()
@@ -49,24 +64,26 @@ def capture_integrity(repo: Path) -> dict[str, Any]:
     """Capture revision and content evidence, including pre-existing dirty files."""
     root = Path(_git(repo, "rev-parse", "--show-toplevel")).resolve()
     head = _git(root, "rev-parse", "HEAD")
-    files = set(
-        filter(
-            None,
-            _git(root, "ls-files", "--cached", "--others", "--exclude-standard").splitlines(),
-        )
-    )
+    files: set[bytes] = {
+        path
+        for path in _git_bytes(
+            root, "ls-files", "--cached", "--others", "--exclude-standard", "-z"
+        ).split(b"\0")
+        if path
+    }
     files.update(
-        filter(
-            None,
-            _git(root, "ls-files", "--others", "--ignored", "--exclude-standard").splitlines(),
-        )
+        path
+        for path in _git_bytes(
+            root, "ls-files", "--others", "--ignored", "--exclude-standard", "-z"
+        ).split(b"\0")
+        if path
     )
     digest = hashlib.sha256()
     paths: list[str] = []
     for relative in sorted(files):
-        path = root / relative
-        paths.append(relative)
-        digest.update(relative.encode("utf-8", "surrogateescape") + b"\0")
+        path = root / os.fsdecode(relative)
+        paths.append(os.fsdecode(relative))
+        digest.update(relative + b"\0")
         if path.is_symlink():
             digest.update(b"L" + os.readlink(path).encode("utf-8", "surrogateescape"))
         elif path.is_file():

@@ -207,13 +207,13 @@ def _run_process(
         if cancel_event is not None and cancel_event.is_set():
             canceled = True
             _stop_process(process)
-            stdout, stderr = process.communicate()
+            stdout, stderr = _drain_process(process)
             break
         remaining = deadline - time.monotonic()
         if remaining <= 0:
             timed_out = True
             _stop_process(process)
-            stdout, stderr = process.communicate()
+            stdout, stderr = _drain_process(process)
             break
         try:
             stdout, stderr = process.communicate(timeout=min(remaining, 0.1))
@@ -247,19 +247,45 @@ def _run_process(
 
 
 def _stop_process(process: subprocess.Popen[bytes]) -> None:
-    if process.poll() is not None:
-        return
+    # The process leader may have exited while a descendant still owns one of
+    # the captured pipe descriptors. ``poll()`` only describes the leader;
+    # the process group remains the ownership boundary for cancellation.
     try:
         os.killpg(process.pid, signal.SIGTERM)
         process.wait(timeout=0.5)
     except ProcessLookupError:
-        return
+        pass
     except subprocess.TimeoutExpired:
         try:
             os.killpg(process.pid, signal.SIGKILL)
             process.wait(timeout=0.5)
+        except (ProcessLookupError, subprocess.TimeoutExpired):
+            pass
+
+
+def _drain_process(process: subprocess.Popen[bytes]) -> tuple[bytes, bytes]:
+    """Drain captured pipes after group termination without an unbounded wait."""
+    try:
+        return process.communicate(timeout=1.0)
+    except subprocess.TimeoutExpired as first:
+        # A descendant can race with the first group signal. Reassert the
+        # ownership boundary before the bounded final drain.
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
         except ProcessLookupError:
-            return
+            pass
+        try:
+            return process.communicate(timeout=1.0)
+        except subprocess.TimeoutExpired as second:
+            stdout = second.output if second.output is not None else first.output
+            stderr = second.stderr if second.stderr is not None else first.stderr
+            # Closing our descriptors is the final bounded-drain safeguard for
+            # an escaped descendant. The leader has already been waited on.
+            if process.stdout is not None:
+                process.stdout.close()
+            if process.stderr is not None:
+                process.stderr.close()
+            return stdout or b"", stderr or b""
 
 
 def _validation_outcome(process: Mapping[str, Any]) -> str:
