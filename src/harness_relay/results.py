@@ -324,6 +324,11 @@ def _safe_text(value: str | bytes) -> str:
     return _bounded(_redact(text))
 
 
+def safe_evidence_text(value: str | bytes) -> str:
+    """Return bounded, redacted text suitable for persisted public evidence."""
+    return _safe_text(value)
+
+
 def _bounded(value: str) -> str:
     encoded = value.encode("utf-8", "replace")
     if len(encoded) <= MAX_EVIDENCE_BYTES:
@@ -358,5 +363,6 @@ __all__ = [
     "parse_native_output",
     "build_result",
     "packaged_result_schema",
+    "safe_evidence_text",
     "validate_result",
 ]

@@ -14,7 +14,13 @@ from typing import Any, Mapping, Sequence
 
 from .adapters import DetectedWorker, TaskRequest, build_invocation
 from .git_evidence import GitEvidenceError, capture_base, capture_snapshot
-from .results import NativeReport, build_result, parse_native_output, validate_result
+from .results import (
+    NativeReport,
+    build_result,
+    parse_native_output,
+    safe_evidence_text,
+    validate_result,
+)
 
 
 REENTRY_ENV = "HARNESS_RELAY_ACTIVE"
@@ -101,8 +107,8 @@ def run_task(
             "outcome": validation_outcome,
             "process": validation_process,
             "argv": list(validation.argv),
-            "stdout": _evidence_text(validation_stdout),
-            "stderr": _evidence_text(validation_stderr),
+            "stdout": safe_evidence_text(validation_stdout),
+            "stderr": safe_evidence_text(validation_stderr),
         }
         after_validation = _git_after(task.cwd, git_context)
 
@@ -282,10 +288,6 @@ def _with_outcome(report: NativeReport, outcome: str) -> NativeReport:
 
 def _error_bytes(exc: BaseException) -> bytes:
     return f"{type(exc).__name__}: {exc}".encode("utf-8", "replace")
-
-
-def _evidence_text(value: bytes) -> str:
-    return value.decode("utf-8", "replace")
 
 
 def _git_before(cwd: Path, supplied_base: str | None) -> dict[str, Any]:

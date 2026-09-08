@@ -16,7 +16,7 @@ import jsonschema
 from .adapters import TaskRequest
 from .configuration import RelayConfig, UserPaths
 from .discovery import discover_worker
-from .execution import REENTRY_ENV, run_task
+from .execution import REENTRY_ENV, ValidationRequest, run_task
 from .workspace import RUN_ID, atomic_json, capture_integrity, integrity_changed, reserve_worktree
 
 
@@ -66,19 +66,26 @@ class McpServer:
             self._write(self._error(message.get("id") if isinstance(message, dict) else None, -32600, "invalid request"))
             return
         method, request_id = message["method"], message.get("id")
+        has_id = "id" in message
+        if has_id and not self._valid_request_id(request_id):
+            self._write(self._error(None, -32600, "invalid request id"))
+            return
         params = message.get("params", {})
         if method == "initialize":
-            if request_id is None or self.initialized or not isinstance(params, dict):
+            if not has_id or self.initialized or not isinstance(params, dict):
                 self._write(self._error(request_id, -32600, "invalid initialize request")); return
+            requested_version = params.get("protocolVersion")
+            if requested_version != PROTOCOL_VERSION:
+                self._write(self._error(request_id, -32602, "unsupported protocol version", {"supported": [PROTOCOL_VERSION], "requested": requested_version})); return
             self.initialized = True
             self._write({"jsonrpc": "2.0", "id": request_id, "result": {"protocolVersion": PROTOCOL_VERSION, "capabilities": {"tools": {}}, "serverInfo": {"name": "harness-relay", "version": "0.1.0a1"}}})
             return
         if method == "notifications/initialized":
-            if self.initialized and request_id is None:
+            if self.initialized and not has_id:
                 self.ready = True
             return
         if not self.ready:
-            if request_id is not None:
+            if has_id:
                 self._write(self._error(request_id, -32600, "server not initialized"))
             return
         if method == "notifications/cancelled":
@@ -88,7 +95,7 @@ class McpServer:
                 if active:
                     active[1].set()
             return
-        if request_id is None:
+        if not has_id:
             return
         if method == "tools/list":
             self._write({"jsonrpc": "2.0", "id": request_id, "result": {"tools": self._tools()}})
@@ -109,7 +116,21 @@ class McpServer:
 
     @staticmethod
     def _delegate_schema() -> dict[str, Any]:
-        return {"type": "object", "properties": {"prompt": {"type": "string", "minLength": 1, "maxLength": 65536}, "repository": {"type": "string", "minLength": 1}, "base_sha": {"type": "string", "minLength": 4, "maxLength": 64}, "read_only": {"type": "boolean"}, "timeout": {"type": "number", "exclusiveMinimum": 0, "maximum": 3600}, "model": {"type": "string", "minLength": 1}, "effort": {"type": "string", "minLength": 1}, "sandbox": {"enum": ["read-only", "workspace-write", "danger-full-access"]}}, "required": ["prompt", "repository", "base_sha"], "additionalProperties": False}
+        validation = {
+            "type": "object",
+            "properties": {
+                "argv": {
+                    "type": "array",
+                    "items": {"type": "string", "minLength": 1, "maxLength": 4096},
+                    "minItems": 1,
+                    "maxItems": 128,
+                },
+                "timeout": {"type": "number", "exclusiveMinimum": 0, "maximum": 3600},
+            },
+            "required": ["argv"],
+            "additionalProperties": False,
+        }
+        return {"type": "object", "properties": {"prompt": {"type": "string", "minLength": 1, "maxLength": 65536}, "repository": {"type": "string", "minLength": 1}, "base_sha": {"type": "string", "minLength": 4, "maxLength": 64}, "read_only": {"type": "boolean"}, "timeout": {"type": "number", "exclusiveMinimum": 0, "maximum": 3600}, "model": {"type": "string", "minLength": 1}, "effort": {"type": "string", "minLength": 1}, "sandbox": {"enum": ["read-only", "workspace-write", "danger-full-access"]}, "validation": validation}, "required": ["prompt", "repository", "base_sha"], "additionalProperties": False}
 
     def _call(self, request_id: Any, params: Any) -> None:
         if not isinstance(params, dict) or not isinstance(params.get("name"), str) or not isinstance(params.get("arguments", {}), dict):
@@ -122,6 +143,11 @@ class McpServer:
             jsonschema.validate(arguments, known[name]["inputSchema"])
         except jsonschema.ValidationError as exc:
             self._write(self._error(request_id, -32602, "invalid tool arguments", {"path": list(exc.absolute_path)})); return
+        validation_arguments = arguments.get("validation")
+        if validation_arguments is not None and any(
+            "\x00" in item for item in validation_arguments["argv"]
+        ):
+            self._write(self._error(request_id, -32602, "invalid tool arguments", {"path": ["validation", "argv"]})); return
         if name == "run_status":
             run_id = arguments["run_id"]
             result = self.results.get(run_id)
@@ -175,7 +201,15 @@ class McpServer:
             sandbox = arguments.get("sandbox")
             if arguments.get("read_only") and worker_name == "codex":
                 sandbox = "read-only"
-            result = run_task(worker, TaskRequest(prompt=arguments["prompt"], cwd=reservation.worktree, timeout=arguments.get("timeout", 300), model=arguments.get("model"), effort=arguments.get("effort"), sandbox=sandbox), cancel_event=event, base_sha=reservation.base_sha, run_id=run_id)
+            validation_arguments = arguments.get("validation")
+            validation = None
+            if validation_arguments is not None:
+                validation = ValidationRequest(
+                    tuple(validation_arguments["argv"]),
+                    reservation.worktree,
+                    validation_arguments.get("timeout", 300),
+                )
+            result = run_task(worker, TaskRequest(prompt=arguments["prompt"], cwd=reservation.worktree, timeout=arguments.get("timeout", 300), model=arguments.get("model"), effort=arguments.get("effort"), sandbox=sandbox), cancel_event=event, validation=validation, base_sha=reservation.base_sha, run_id=run_id)
             after = capture_integrity(reservation.worktree)
             state = "canceled" if result["process"]["classification"] == "canceled" else "completed"
             stored = {"run_id": run_id, "state": state, "workspace": str(reservation.worktree), "base_sha": reservation.base_sha, "read_only": bool(arguments.get("read_only")), "integrity_changed": integrity_changed(before, after), "result": result}
@@ -187,7 +221,23 @@ class McpServer:
         with self.lock:
             self.results[run_id] = stored
             self.active.pop(request_id, None)
-        self._persist(run_id)
+        try:
+            self._persist(run_id)
+        except OSError as exc:
+            stored = dict(stored)
+            stored["state"] = "failed"
+            stored["error"] = f"terminal state persistence failed: {exc}"[:1000]
+            with self.lock:
+                self.results[run_id] = stored
+            try:
+                self._persist(run_id)
+            except OSError:
+                try:
+                    (self.state_dir / f"{run_id}.json").unlink()
+                except FileNotFoundError:
+                    pass
+                except OSError:
+                    stored["error"] = "terminal state persistence failed; stale state removal also failed"
         if not event.is_set():
             self._write(self._success(request_id, stored, error=stored["state"] == "failed"))
 
@@ -211,6 +261,12 @@ class McpServer:
         with self.lock:
             self.stdout.write(line + "\n")
             self.stdout.flush()
+
+    @staticmethod
+    def _valid_request_id(value: Any) -> bool:
+        return value is None or isinstance(value, str) or (
+            isinstance(value, (int, float)) and not isinstance(value, bool)
+        )
 
 
 def serve_stdio(config: RelayConfig, paths: UserPaths) -> None:

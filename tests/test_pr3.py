@@ -349,13 +349,30 @@ class Pr3Test(unittest.TestCase):
 
     @staticmethod
     def _git(cwd: Path, *args: str) -> None:
+        identity: tuple[str, ...] = ()
+        name = subprocess.run(
+            ("git", "config", "--get", "user.name"),
+            cwd=cwd,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+        ).stdout.strip()
+        email = subprocess.run(
+            ("git", "config", "--get", "user.email"),
+            cwd=cwd,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+        ).stdout.strip()
+        if not name or not email:
+            identity = (
+                "-c", "user.name=HarnessRelay Fixture",
+                "-c", "user.email=fixture@example.invalid",
+            )
         subprocess.run(
             (
                 "git",
-                "-c",
-                "user.name=root",
-                "-c",
-                "user.email=root@agent.caminotto.it",
+                *identity,
                 "-c",
                 "commit.gpgsign=false",
                 *args,

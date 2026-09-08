@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 import subprocess
 import sys
@@ -19,7 +20,7 @@ class Pr5Test(unittest.TestCase):
             self._git(repository, "init")
             (repository / "fact.txt").write_text("fixture fact\n", encoding="utf-8")
             self._git(repository, "add", "fact.txt")
-            self._git(repository, "-c", "user.name=root", "-c", "user.email=root@agent.caminotto.it", "-c", "commit.gpgsign=false", "commit", "-m", "base")
+            self._git(repository, "-c", "commit.gpgsign=false", "commit", "-m", "base")
             base = self._git(repository, "rev-parse", "HEAD")
 
             fake = root / "agy"
@@ -36,12 +37,47 @@ class Pr5Test(unittest.TestCase):
             config = root / "config.json"
             config.write_text(json.dumps({"version": 1, "workers": {"agy": {"enabled": True, "executable": str(fake)}}, "paths": {"worktrees": str(root / "worktrees")}}), encoding="utf-8")
 
+            home = root / "home"
+            home.mkdir()
+            opencode = root / "opencode.jsonc"
+            opencode.write_text('{\n  // retained user setting\n  "model": "provider/master-a",\n  "theme": "dark"\n}\n', encoding="utf-8")
+            environment = os.environ.copy()
+            environment.update(
+                HOME=str(home),
+                XDG_CONFIG_HOME=str(root / "xdg-config"),
+                XDG_DATA_HOME=str(root / "xdg-data"),
+                XDG_STATE_HOME=str(root / "xdg-state"),
+            )
+            setup_command = (
+                sys.executable, "-m", "harness_relay", "setup", "--non-interactive",
+                "--relay-config", str(config), "--scope", "custom",
+                "--opencode-config", str(opencode),
+            )
+            original_opencode = opencode.read_bytes()
+            self._run((*setup_command, "--dry-run"), environment)
+            self.assertEqual(opencode.read_bytes(), original_opencode)
+            self._run(setup_command, environment)
+            after_setup = opencode.read_bytes()
+            relay_before_model_change = config.read_bytes()
+            repeated = self._run(setup_command, environment)
+            self.assertIn("changed: none", repeated.stdout)
+            self.assertEqual(opencode.read_bytes(), after_setup)
+
+            opencode.write_text(
+                opencode.read_text(encoding="utf-8").replace(
+                    '"provider/master-a"', '"provider/master-b"'
+                ),
+                encoding="utf-8",
+            )
+            self.assertEqual(config.read_bytes(), relay_before_model_change)
+
             process = subprocess.Popen(
                 (sys.executable, "-m", "harness_relay", "mcp", "--stdio", "--config", str(config)),
                 stdin=subprocess.PIPE,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 text=True,
+                env=environment,
             )
             assert process.stdin is not None and process.stdout is not None
             self._send(process, {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2025-11-25"}})
@@ -50,12 +86,16 @@ class Pr5Test(unittest.TestCase):
             self._send(process, {"jsonrpc": "2.0", "id": 2, "method": "tools/list"})
             tools = json.loads(process.stdout.readline())["result"]["tools"]
             self.assertIn("delegate_agy", [tool["name"] for tool in tools])
-            self._send(process, {"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "delegate_agy", "arguments": {"prompt": "fixture task", "repository": str(repository), "base_sha": base}}})
+            validation_code = "from pathlib import Path; assert Path('worker.txt').read_text() == 'retained work\\n'; Path('validated.txt').write_text('validation passed\\n')"
+            self._send(process, {"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "delegate_agy", "arguments": {"prompt": "fixture task", "repository": str(repository), "base_sha": base, "validation": {"argv": [sys.executable, "-c", validation_code], "timeout": 5}}}})
             response = json.loads(process.stdout.readline())
             self.assertEqual(response["id"], 3)
             payload = json.loads(response["result"]["content"][0]["text"])
             self.assertEqual(payload["state"], "completed")
             self.assertTrue((Path(payload["workspace"]) / "worker.txt").is_file())
+            self.assertEqual(payload["result"]["validation"]["outcome"], "passed")
+            self.assertTrue(payload["result"]["validation"]["executed"])
+            self.assertTrue((Path(payload["workspace"]) / "validated.txt").is_file())
             self.assertEqual(self._git(repository, "rev-parse", "HEAD"), base)
             process.stdin.close()
             self.assertEqual(process.wait(timeout=5), 0)
@@ -65,6 +105,21 @@ class Pr5Test(unittest.TestCase):
                 process.stderr.close()
                 self.assertEqual(error, "")
 
+            self._run(
+                (
+                    sys.executable, "-m", "harness_relay", "uninstall",
+                    "--scope", "custom", "--opencode-config", str(opencode),
+                ),
+                environment,
+            )
+            preserved = opencode.read_text(encoding="utf-8")
+            self.assertIn("retained user setting", preserved)
+            self.assertIn('"model": "provider/master-b"', preserved)
+            self.assertIn('"theme": "dark"', preserved)
+            self.assertNotIn("harness-relay", preserved)
+            self.assertTrue(Path(payload["workspace"]).is_dir())
+            self.assertEqual(config.read_bytes(), relay_before_model_change)
+
     @staticmethod
     def _send(process: subprocess.Popen[str], value: dict[str, object]) -> None:
         assert process.stdin is not None
@@ -72,8 +127,24 @@ class Pr5Test(unittest.TestCase):
         process.stdin.flush()
 
     @staticmethod
+    def _run(argv: tuple[str, ...], environment: dict[str, str]) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            argv,
+            check=True,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            env=environment,
+        )
+
+    @staticmethod
     def _git(path: Path, *args: str) -> str:
-        return subprocess.run(("git", "-C", str(path), *args), check=True, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE).stdout.strip()
+        identity: tuple[str, ...] = ()
+        name = subprocess.run(("git", "-C", str(path), "config", "--get", "user.name"), text=True, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL).stdout.strip()
+        email = subprocess.run(("git", "-C", str(path), "config", "--get", "user.email"), text=True, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL).stdout.strip()
+        if not name or not email:
+            identity = ("-c", "user.name=HarnessRelay Fixture", "-c", "user.email=fixture@example.invalid")
+        return subprocess.run(("git", "-C", str(path), *identity, *args), check=True, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE).stdout.strip()
 
 
 if __name__ == "__main__":
