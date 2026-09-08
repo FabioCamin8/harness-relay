@@ -1,6 +1,6 @@
 # Implementation plan
 
-Baseline: 2026-09-07. Status: PR-1 is merged; PR-2 G03/G04 passed exact-SHA review at `8849e043f04e320f111fba8f11e070c012a45e03`, followed by a reviewed evidence-only delta.
+Baseline: 2026-09-07. Status: PR-1 is merged; PR-2 G03/G04 passed exact-SHA review at `8849e043f04e320f111fba8f11e070c012a45e03`, followed by a reviewed evidence-only delta. PR-3 G05-G08 have an offline-tested code candidate at `8344fc33d048183065c9c7cb7a8d1977c9ecae42`; maintainer review and all live-worker claims remain pending.
 
 ## Product contract
 
