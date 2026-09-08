@@ -19,7 +19,7 @@ from .configuration import (
     load_config,
 )
 from .discovery import DetectedWorker, discover_enabled
-from .jsonc import source_fragment
+from .jsonc import parse as parse_jsonc, source_fragment
 from .opencode import (
     INSTRUCTION_TEXT,
     MCP_ENTRY,
@@ -146,8 +146,7 @@ def run_setup(
     if pending.get("key") == state_key:
         pending_record = pending.get("record", {})
         if isinstance(pending_record, dict):
-            for name, value in pending_record.items():
-                old_record.setdefault(name, value)
+            old_record.update(pending_record)
 
     fragment_exists = instruction_path.exists()
     instruction_before: bytes | None = None
@@ -168,6 +167,10 @@ def run_setup(
                 f"{instruction_path}; move it or choose another user config home"
             )
 
+    shared_owned_fragment = _known_owned_instruction_fragment(
+        old_state, state_key, instruction_path, pending, pending.get("key") == state_key
+    )
+
     # Supplying an explicit override that already describes the file is a true
     # no-op; do not rewrite bytes or update mtime merely because an option was
     # supplied.
@@ -187,16 +190,25 @@ def run_setup(
             old_record.get("instruction_entry_owned", False) or instruction_created
         ),
         instruction_fragment_owned=bool(
-            old_record.get("instruction_fragment_owned", False) or fragment_changed
+            old_record.get("instruction_fragment_owned", False)
+            or fragment_changed
+            or shared_owned_fragment
         ),
         mcp_fragment_hash=(
             _mcp_fragment_hash(new_opencode_text)
             if mcp_created
             else old_record.get("mcp_fragment_hash")
         ),
+        instruction_entry_hash=(
+            _instruction_entry_hash(new_opencode_text, str(instruction_path))
+            if instruction_created
+            else old_record.get("instruction_entry_hash")
+        ),
         fragment_hash=old_record.get("fragment_hash")
         or _sha256(INSTRUCTION_TEXT.encode("utf-8")),
     )
+    if instruction_created and state["integrations"][state_key]["instruction_entry_hash"] is None:
+        raise SetupError("cannot record ownership: integrated instruction entry is missing")
     state_changed = state != old_state
 
     plan = SetupPlan(
@@ -216,18 +228,18 @@ def run_setup(
     if not plan.changed and not pending.get("key") == state_key:
         return plan
 
-    pending_record = state["integrations"][state_key]
-    atomic_write(
-        pending_path,
-        (
-            json.dumps(
-                {"version": STATE_VERSION, "key": state_key, "record": pending_record},
-                indent=2,
-                sort_keys=True,
-            )
-            + "\n"
-        ).encode("utf-8"),
-    )
+    desired_record = state["integrations"][state_key]
+    pending_record = dict(desired_record)
+    if mcp_created:
+        pending_record["mcp_owned"] = False
+        pending_record["mcp_fragment_hash"] = None
+    if instruction_created:
+        pending_record["instruction_entry_owned"] = False
+        pending_record["instruction_entry_hash"] = None
+    if fragment_changed:
+        pending_record["instruction_fragment_owned"] = False
+        pending_record["fragment_hash"] = None
+    _write_pending(pending_path, state_key, pending_record)
     # Each file replacement is atomic and its parent is created only at the
     # point of applying a real setup.  A failed replacement leaves the old
     # complete file in place and a later run can safely retry the plan.
@@ -239,10 +251,27 @@ def run_setup(
         atomic_write_checked(
             instruction_path, instruction_before, INSTRUCTION_TEXT.encode("utf-8"), "setup"
         )
+        pending_record["instruction_fragment_owned"] = desired_record[
+            "instruction_fragment_owned"
+        ]
+        pending_record["fragment_hash"] = desired_record["fragment_hash"]
+        _write_pending(pending_path, state_key, pending_record)
     if plan.opencode_changed:
         atomic_write_checked(
             selection.path, opencode_before, new_opencode_text.encode("utf-8"), "setup"
         )
+        if mcp_created:
+            pending_record["mcp_owned"] = desired_record["mcp_owned"]
+            pending_record["mcp_fragment_hash"] = desired_record["mcp_fragment_hash"]
+        if instruction_created:
+            pending_record["instruction_entry_owned"] = desired_record[
+                "instruction_entry_owned"
+            ]
+            pending_record["instruction_entry_hash"] = desired_record[
+                "instruction_entry_hash"
+            ]
+        if mcp_created or instruction_created:
+            _write_pending(pending_path, state_key, pending_record)
     if state_changed:
         atomic_write(
             user_paths.state_dir / "setup.json",
@@ -325,6 +354,7 @@ def _state_with_record(
     instruction_entry_owned: bool,
     instruction_fragment_owned: bool,
     mcp_fragment_hash: str | None,
+    instruction_entry_hash: str | None,
     fragment_hash: str,
 ) -> dict:
     updated = {"version": STATE_VERSION, "integrations": dict(state.get("integrations", {}))}
@@ -337,6 +367,7 @@ def _state_with_record(
         "mcp_fragment_hash": mcp_fragment_hash,
         "mcp_owned": mcp_owned,
         "instruction_entry_owned": instruction_entry_owned,
+        "instruction_entry_hash": instruction_entry_hash,
         "instruction_fragment_owned": instruction_fragment_owned,
         "fragment_hash": fragment_hash,
     }
@@ -388,6 +419,59 @@ def _clear_pending(path: Path) -> None:
         raise SetupError(f"cannot clear pending setup journal {path}: {exc}") from exc
 
 
+def _write_pending(path: Path, key: str, record: dict) -> None:
+    """Persist ownership only through the setup steps that actually completed."""
+    atomic_write(
+        path,
+        (
+            json.dumps(
+                {"version": STATE_VERSION, "key": key, "record": record},
+                indent=2,
+                sort_keys=True,
+            )
+            + "\n"
+        ).encode("utf-8"),
+    )
+
+
+def _known_owned_instruction_fragment(
+    state: dict,
+    key: str,
+    instruction_path: Path,
+    pending: dict,
+    pending_matches: bool,
+) -> bool:
+    """Return whether another integration already owns this shared fragment."""
+    integrations = state.get("integrations", {})
+    if isinstance(integrations, dict):
+        for other_key, record in integrations.items():
+            if other_key == key or not isinstance(record, dict):
+                continue
+            if record.get("instruction_fragment_owned", False) and _same_instruction_path(
+                record, instruction_path
+            ):
+                return True
+    if not pending_matches:
+        pending_record = pending.get("record")
+        if (
+            isinstance(pending_record, dict)
+            and pending_record.get("instruction_fragment_owned", False)
+            and _same_instruction_path(pending_record, instruction_path)
+        ):
+            return True
+    return False
+
+
+def _same_instruction_path(record: dict, instruction_path: Path) -> bool:
+    recorded = record.get("instruction_path")
+    if not isinstance(recorded, str):
+        return False
+    try:
+        return Path(recorded).expanduser().resolve() == instruction_path.resolve()
+    except (OSError, RuntimeError, ValueError):
+        return False
+
+
 def load_ownership(user_paths: UserPaths) -> dict:
     """Load ownership state for uninstall and diagnostics."""
     return _load_state(state_path(user_paths))
@@ -408,6 +492,24 @@ def _mcp_fragment_hash(text: str) -> str:
     if fragment is None:
         raise SetupError("cannot record ownership: integrated MCP fragment is missing")
     return _sha256(fragment.encode("utf-8"))
+
+
+def _instruction_entry_hash(text: str, instruction_path: str) -> str | None:
+    """Hash the exact inserted instruction value, including its JSON escapes."""
+    try:
+        root = parse_jsonc(text)
+    except ValueError as exc:
+        raise SetupError(f"cannot record ownership: invalid integrated config: {exc}") from exc
+    instructions = root.get("instructions") if isinstance(root, dict) else None
+    if not isinstance(instructions, list):
+        return None
+    for index, value in enumerate(instructions):
+        if value == instruction_path:
+            fragment = source_fragment(text, ["instructions", index])
+            if fragment is None:
+                return None
+            return _sha256(fragment.encode("utf-8"))
+    return None
 
 
 def _canonical_json(value: object) -> str:

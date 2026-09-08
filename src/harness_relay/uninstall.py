@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import json
 import os
 from pathlib import Path
 
@@ -75,6 +76,22 @@ def run_uninstall(
         return UninstallPlan(
             selection.path, instruction_path, False, False, False, (), options.dry_run
         )
+    recorded_instruction_path = record.get("instruction_path")
+    if not isinstance(recorded_instruction_path, str) or not recorded_instruction_path:
+        raise SetupError(
+            f"ownership record for {key} has no valid instruction_path; refusing uninstall"
+        )
+    try:
+        instruction_path = Path(recorded_instruction_path)
+        if not instruction_path.is_absolute():
+            raise SetupError(
+                f"ownership record for {key} has a relative instruction_path; refusing uninstall"
+            )
+        instruction_path = instruction_path.resolve()
+    except (OSError, RuntimeError, ValueError) as exc:
+        raise SetupError(
+            f"ownership record for {key} has an invalid instruction_path; refusing uninstall"
+        ) from exc
 
     opencode_text, root = inspect_config(selection.path)
     opencode_before = (
@@ -96,6 +113,18 @@ def run_uninstall(
         preserved = []
 
     instruction_owned = bool(record.get("instruction_entry_owned", False))
+    expected_instruction_hash = record.get("instruction_entry_hash")
+    instruction_unchanged = bool(
+        instruction_owned
+        and isinstance(expected_instruction_hash, str)
+        and _instruction_entry_matches(
+            opencode_text, root, str(instruction_path), expected_instruction_hash
+        )
+    )
+    if instruction_owned and not instruction_unchanged:
+        preserved.append(
+            "the edited or unverified HarnessRelay instruction entry"
+        )
     instruction_before: bytes | None = None
     try:
         instruction_text = instruction_path.read_text(encoding="utf-8")
@@ -104,24 +133,41 @@ def run_uninstall(
         instruction_text = ""
     except OSError as exc:
         raise SetupError(f"cannot read instruction fragment {instruction_path}: {exc}") from exc
+    fragment_unchanged = False
     if record.get("instruction_fragment_owned", False):
         expected_hash = record.get("fragment_hash")
-        if instruction_text and _sha256(instruction_text.encode("utf-8")) != expected_hash:
+        fragment_unchanged = bool(
+            instruction_text
+            and isinstance(expected_hash, str)
+            and _sha256(instruction_text.encode("utf-8")) == expected_hash
+        )
+        if not fragment_unchanged:
             preserved.append("the edited HarnessRelay instruction fragment")
+    shared_fragment = _shared_instruction_reference(
+        state, key, instruction_path, pending, pending_matches
+    )
+    if fragment_unchanged and shared_fragment:
+        preserved.append(
+            "the HarnessRelay instruction fragment (referenced by another integration)"
+        )
+    remove_fragment = fragment_unchanged and not shared_fragment
     try:
         new_text, _, _ = remove_owned(
             opencode_text,
             remove_mcp=remove_mcp,
-            instruction_path=str(instruction_path) if instruction_owned else "\0never-owned\0",
+            instruction_path=(
+                str(instruction_path) if instruction_unchanged else "\0never-owned\0"
+            ),
+            instruction_entry_hash=(
+                expected_instruction_hash if instruction_unchanged else None
+            ),
         )
     except Exception as exc:
         raise SetupError(f"cannot prepare uninstall for {selection.path}: {exc}") from exc
     # remove_owned reports an instruction removal only when the ownership
     # record allowed it; a missing path is already a safe no-op.
     fragment_removed = bool(
-        record.get("instruction_fragment_owned", False)
-        and instruction_text
-        and _sha256(instruction_text.encode("utf-8")) == record.get("fragment_hash")
+        remove_fragment
     )
     state_without = {
         "version": 1,
@@ -151,8 +197,6 @@ def run_uninstall(
         _remove_owned_fragment(instruction_path, instruction_before)
     if state_changed:
         if state_without != state:
-            import json
-
             atomic_write(
                 state_file,
                 (json.dumps(state_without, indent=2, sort_keys=True) + "\n").encode("utf-8"),
@@ -174,3 +218,56 @@ def _remove_owned_fragment(path: Path, expected: bytes | None) -> None:
         return
     except OSError as exc:
         raise SetupError(f"cannot remove owned instruction fragment {path}: {exc}") from exc
+
+
+def _instruction_entry_matches(
+    text: str, root: object, instruction_path: str, expected_hash: str
+) -> bool:
+    if not isinstance(root, dict):
+        return False
+    instructions = root.get("instructions")
+    if not isinstance(instructions, list):
+        return False
+    for index, value in enumerate(instructions):
+        if value != instruction_path:
+            continue
+        fragment = source_fragment(text, ["instructions", index])
+        if fragment is not None and _sha256(fragment.encode("utf-8")) == expected_hash:
+            return True
+    return False
+
+
+def _shared_instruction_reference(
+    state: dict,
+    key: str,
+    instruction_path: Path,
+    pending: dict,
+    pending_matches: bool,
+) -> bool:
+    integrations = state.get("integrations", {})
+    if isinstance(integrations, dict):
+        for other_key, record in integrations.items():
+            if other_key == key or not isinstance(record, dict):
+                continue
+            if _record_uses_instruction_path(record, instruction_path):
+                return True
+    if not pending_matches:
+        pending_record = pending.get("record")
+        if isinstance(pending_record, dict) and _record_uses_instruction_path(
+            pending_record, instruction_path
+        ):
+            return True
+    return False
+
+
+def _record_uses_instruction_path(record: dict, instruction_path: Path) -> bool:
+    recorded = record.get("instruction_path")
+    if isinstance(recorded, str):
+        try:
+            return Path(recorded).expanduser().resolve() == instruction_path
+        except (OSError, RuntimeError, ValueError):
+            return True
+    return bool(
+        record.get("instruction_fragment_owned", False)
+        or record.get("instruction_entry_owned", False)
+    )

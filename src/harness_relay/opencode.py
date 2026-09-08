@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import hashlib
 import os
 from pathlib import Path
 from typing import Mapping
@@ -15,6 +16,7 @@ from .jsonc import (
     edit,
     remove,
     parse,
+    source_fragment,
 )
 
 
@@ -223,6 +225,7 @@ def remove_owned(
     *,
     remove_mcp: bool,
     instruction_path: str,
+    instruction_entry_hash: str | None = None,
 ) -> tuple[str, bool, bool]:
     """Remove only owned members, leaving empty containers and user content."""
     try:
@@ -241,13 +244,20 @@ def remove_owned(
     root = _parse_object(text)
     instruction_removed = False
     instructions = root.get("instructions", MISSING)
-    if isinstance(instructions, list):
+    if isinstance(instructions, list) and instruction_entry_hash is not None:
         for index in reversed(range(len(instructions))):
             if instructions[index] == instruction_path:
+                fragment = source_fragment(text, ["instructions", index])
+                if fragment is None or _source_hash(fragment) != instruction_entry_hash:
+                    continue
                 text = remove(text, ["instructions", index])
                 instruction_removed = True
                 break
     return text, mcp_removed, instruction_removed
+
+
+def _source_hash(fragment: str) -> str:
+    return hashlib.sha256(fragment.encode("utf-8")).hexdigest()
 
 
 def _parse_object(text: str):

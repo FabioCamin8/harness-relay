@@ -88,11 +88,21 @@ class UserPaths:
         home: str | os.PathLike[str] | None = None,
     ) -> "UserPaths":
         env = os.environ if environ is None else environ
-        home_path = Path(home if home is not None else env.get("HOME", str(Path.home())))
+        home_value = home if home is not None else env.get("HOME")
+        home_path = Path(Path.home() if home_value is None else home_value)
+        if not home_path.is_absolute():
+            raise ConfigurationError(
+                "HOME must be an absolute, non-empty path; set HOME or pass an absolute home"
+            )
 
         def xdg(name: str, default: Path) -> Path:
             value = env.get(name)
-            return Path(value) if value else default
+            if not value:
+                return default
+            path = Path(value)
+            if not path.is_absolute():
+                raise ConfigurationError(f"{name} must be an absolute path when set")
+            return path
 
         config_home = xdg("XDG_CONFIG_HOME", home_path / ".config")
         data_home = xdg("XDG_DATA_HOME", home_path / ".local" / "share")
@@ -109,9 +119,15 @@ class UserPaths:
 
     def with_config_paths(self, config: RelayConfig) -> dict[str, Path]:
         """Resolve configured paths, falling back to XDG user-local paths."""
-        data = _path_from_config(config.paths, "data", self.data_home / "harness-relay")
-        worktrees = _path_from_config(config.paths, "worktrees", data / "worktrees")
-        artifacts = _path_from_config(config.paths, "artifacts", data / "artifacts")
+        data = _path_from_config(
+            config.paths, "data", self.data_home / "harness-relay", self.home
+        )
+        worktrees = _path_from_config(
+            config.paths, "worktrees", data / "worktrees", self.home
+        )
+        artifacts = _path_from_config(
+            config.paths, "artifacts", data / "artifacts", self.home
+        )
         return {"data": data, "worktrees": worktrees, "artifacts": artifacts}
 
 
@@ -205,6 +221,10 @@ def parse_config(document: Any, source: str = "<config>") -> RelayConfig:
             raise ConfigurationError(f"{source}.paths.{name}: must be a non-empty string")
         if "\x00" in value:
             raise ConfigurationError(f"{source}.paths.{name}: must not contain NUL")
+        if value != "~" and not value.startswith("~/") and not Path(value).is_absolute():
+            raise ConfigurationError(
+                f"{source}.paths.{name}: must be absolute or home-relative with ~/"
+            )
         paths[name] = value
 
     return RelayConfig(
@@ -288,11 +308,17 @@ def config_with_overrides(
     return parse_config(document, "setup options")
 
 
-def _path_from_config(values: Mapping[str, str], key: str, default: Path) -> Path:
+def _path_from_config(
+    values: Mapping[str, str], key: str, default: Path, home: Path
+) -> Path:
     value = values.get(key)
     if value is None:
         return default
-    return Path(os.path.expanduser(value))
+    if value == "~":
+        return home
+    if value.startswith("~/"):
+        return home / value[2:]
+    return Path(value)
 
 
 def _reject_unknown(document: Mapping[Any, Any], allowed: set[str] | frozenset[str], source: str) -> None:

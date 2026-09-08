@@ -507,17 +507,29 @@ def remove(text: str, path: Sequence[str | int]) -> str:
 
 
 def source_fragment(text: str, path: Sequence[str | int]) -> str | None:
-    """Return the exact UTF-8 source fragment for an object property."""
+    """Return the exact UTF-8 source fragment for an object or array value."""
     document = _validated(text)
-    if not path or not isinstance(path[-1], str):
+    if not path:
         return None
     parent = _resolve_node(document, path[:-1])
-    if parent is None or parent.type != "object":
+    if parent is None:
         return None
-    for pair in _object_pairs(parent):
-        if _key_value(pair, document.source) == path[-1]:
-            try:
-                return document.source[pair.start_byte : pair.end_byte].decode("utf-8")
-            except UnicodeDecodeError as exc:
-                raise JsoncError("JSONC property fragment is not valid UTF-8") from exc
-    return None
+    segment = path[-1]
+    if parent.type == "object" and isinstance(segment, str):
+        for pair in _object_pairs(parent):
+            if _key_value(pair, document.source) == segment:
+                node = pair
+                break
+        else:
+            return None
+    elif parent.type == "array" and type(segment) is int:
+        values = _array_values(parent)
+        if segment < 0 or segment >= len(values):
+            return None
+        node = values[segment]
+    else:
+        return None
+    try:
+        return document.source[node.start_byte : node.end_byte].decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise JsoncError("JSONC source fragment is not valid UTF-8") from exc

@@ -62,6 +62,7 @@ class Pr2Test(unittest.TestCase):
             {"version": 1, "workers": {"codex": {"enabled": 1}}},
             {"version": 1, "workers": {"unknown": {"enabled": True}}},
             {"version": 1, "paths": {"data": "bad\x00path"}},
+            {"version": 1, "paths": {"data": "relative-data"}},
         ):
             with self.subTest(invalid=invalid):
                 self.assertTrue(list(validator.iter_errors(invalid)))
@@ -71,6 +72,48 @@ class Pr2Test(unittest.TestCase):
         self.assertEqual(list(validator.iter_errors(role_without_enabled_worker)), [])
         with self.assertRaisesRegex(ConfigurationError, "not enabled"):
             parse_config(role_without_enabled_worker)
+
+        # JSON Schema numbers use mathematical equality, so a Python float
+        # 1.0 is accepted by the standard validator despite the integer type.
+        # The runtime validator retains the stricter lexical/config contract.
+        self.assertEqual(list(validator.iter_errors({"version": 1.0})), [])
+        with self.assertRaisesRegex(ConfigurationError, "must be an integer"):
+            parse_config({"version": 1.0})
+
+    def test_user_paths_reject_empty_home_and_relative_xdg_values(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            cases = (
+                ({"HOME": ""}, "HOME"),
+                ({"HOME": str(root), "XDG_CONFIG_HOME": "config"}, "XDG_CONFIG_HOME"),
+                ({"HOME": str(root), "XDG_DATA_HOME": "data"}, "XDG_DATA_HOME"),
+                ({"HOME": str(root), "XDG_STATE_HOME": "state"}, "XDG_STATE_HOME"),
+            )
+            for environment, name in cases:
+                with self.subTest(name=name):
+                    with self.assertRaisesRegex(ConfigurationError, name):
+                        UserPaths.from_environment(environment)
+
+    def test_configured_paths_are_absolute_or_home_relative(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            user_paths = UserPaths.from_environment({"HOME": str(root)})
+            config = parse_config(
+                {
+                    "version": 1,
+                    "paths": {
+                        "data": "~/data",
+                        "worktrees": "/var/tmp/harness-relay-worktrees",
+                    },
+                }
+            )
+            resolved = user_paths.with_config_paths(config)
+            self.assertEqual(resolved["data"], root / "data")
+            self.assertEqual(
+                resolved["worktrees"], Path("/var/tmp/harness-relay-worktrees")
+            )
+            with self.assertRaisesRegex(ConfigurationError, "absolute"):
+                parse_config({"version": 1, "paths": {"data": "relative-data"}})
 
     def test_config_is_strict_and_role_must_reference_enabled_adapter(self) -> None:
         with self.assertRaisesRegex(ConfigurationError, "unsupported config version"):
@@ -441,6 +484,78 @@ class Pr2Test(unittest.TestCase):
             self.assertIn("mcp.harness-relay", " ".join(plan.preserved_user_edits))
             self.assertIn(MCP_NAME, opencode.read_text(encoding="utf-8"))
 
+    def test_uninstall_preserves_escaped_byte_edited_instruction_entry(self) -> None:
+        with self._workspace() as (root, environment, relay_config, opencode):
+            run_setup(
+                SetupOptions(relay_config=relay_config, scope="custom", opencode_config=opencode),
+                environ=environment,
+            )
+            instruction = root / "cfg" / "harness-relay" / "opencode-instructions.md"
+            configured = opencode.read_text(encoding="utf-8")
+            literal = json.dumps(str(instruction))
+            escaped = literal.replace("/", "\\/", 1)
+            self.assertIn(literal, configured)
+            opencode.write_text(configured.replace(literal, escaped, 1), encoding="utf-8")
+
+            plan = run_uninstall(
+                UninstallOptions(scope="custom", opencode_config=opencode),
+                environ=environment,
+            )
+
+            self.assertIn("instruction entry", " ".join(plan.preserved_user_edits))
+            result = opencode.read_text(encoding="utf-8")
+            self.assertIn(escaped, result)
+            self.assertIn(str(instruction), parse_jsonc(result)["instructions"])
+
+    def test_uninstall_uses_recorded_instruction_path_after_xdg_change(self) -> None:
+        with self._workspace() as (root, environment, relay_config, opencode):
+            run_setup(
+                SetupOptions(relay_config=relay_config, scope="custom", opencode_config=opencode),
+                environ=environment,
+            )
+            recorded_instruction = root / "cfg" / "harness-relay" / "opencode-instructions.md"
+            changed_environment = dict(
+                environment, XDG_CONFIG_HOME=str(root / "replacement-config")
+            )
+
+            plan = run_uninstall(
+                UninstallOptions(scope="custom", opencode_config=opencode),
+                environ=changed_environment,
+            )
+
+            self.assertTrue(plan.fragment_removed)
+            self.assertFalse(recorded_instruction.exists())
+            self.assertNotIn(str(recorded_instruction), opencode.read_text(encoding="utf-8"))
+
+    def test_shared_instruction_fragment_survives_until_last_integration(self) -> None:
+        with self._workspace() as (root, environment, relay_config, opencode):
+            second_config = root / "second-opencode.jsonc"
+            second_config.write_text('{"theme": "second"}\n', encoding="utf-8")
+            run_setup(
+                SetupOptions(relay_config=relay_config, scope="custom", opencode_config=opencode),
+                environ=environment,
+            )
+            run_setup(
+                SetupOptions(relay_config=relay_config, scope="custom", opencode_config=second_config),
+                environ=environment,
+            )
+            instruction = root / "cfg" / "harness-relay" / "opencode-instructions.md"
+
+            first = run_uninstall(
+                UninstallOptions(scope="custom", opencode_config=opencode),
+                environ=environment,
+            )
+            self.assertFalse(first.fragment_removed)
+            self.assertTrue(instruction.exists())
+            self.assertIn(str(instruction), second_config.read_text(encoding="utf-8"))
+
+            last = run_uninstall(
+                UninstallOptions(scope="custom", opencode_config=second_config),
+                environ=environment,
+            )
+            self.assertTrue(last.fragment_removed)
+            self.assertFalse(instruction.exists())
+
     def test_higher_precedence_scope_conflict_is_reported(self) -> None:
         with self._workspace() as (root, environment, relay_config, opencode):
             project = root / "project"
@@ -550,12 +665,10 @@ class Pr2Test(unittest.TestCase):
     def test_interrupted_state_write_is_recoverable_on_retry(self) -> None:
         with self._workspace() as (root, environment, relay_config, opencode):
             real_replace = setup_module.os.replace
-            calls = 0
+            state_file = root / "state" / "harness-relay" / "setup.json"
 
             def fail_state_write(source, target):
-                nonlocal calls
-                calls += 1
-                if calls == 4:
+                if Path(target) == state_file:
                     raise OSError("injected state interruption")
                 return real_replace(source, target)
 
@@ -586,12 +699,10 @@ class Pr2Test(unittest.TestCase):
     def test_uninstall_can_recover_an_interrupted_setup(self) -> None:
         with self._workspace() as (root, environment, relay_config, opencode):
             real_replace = setup_module.os.replace
-            calls = 0
+            state_file = root / "state" / "harness-relay" / "setup.json"
 
             def fail_state_write(source, target):
-                nonlocal calls
-                calls += 1
-                if calls == 4:
+                if Path(target) == state_file:
                     raise OSError("injected state interruption")
                 return real_replace(source, target)
 
@@ -612,6 +723,92 @@ class Pr2Test(unittest.TestCase):
             self.assertTrue(plan.changed)
             self.assertNotIn(MCP_NAME, opencode.read_text(encoding="utf-8"))
             self.assertFalse((root / "cfg" / "harness-relay" / "opencode-instructions.md").exists())
+
+    def test_pending_journal_does_not_claim_user_identical_fragment(self) -> None:
+        with self._workspace() as (root, environment, relay_config, opencode):
+            instruction = root / "cfg" / "harness-relay" / "opencode-instructions.md"
+            real_checked = setup_module.atomic_write_checked
+
+            def fail_fragment(path, expected, content, operation):
+                if path == instruction:
+                    raise OSError("injected fragment interruption")
+                return real_checked(path, expected, content, operation)
+
+            with mock.patch.object(
+                setup_module, "atomic_write_checked", side_effect=fail_fragment
+            ):
+                with self.assertRaises(OSError):
+                    run_setup(
+                        SetupOptions(
+                            relay_config=relay_config,
+                            scope="custom",
+                            opencode_config=opencode,
+                        ),
+                        environ=environment,
+                    )
+            pending = json.loads(
+                (root / "state" / "harness-relay" / "setup.pending.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+            self.assertFalse(pending["record"]["instruction_fragment_owned"])
+
+            instruction.parent.mkdir(parents=True, exist_ok=True)
+            instruction.write_text(setup_module.INSTRUCTION_TEXT, encoding="utf-8")
+            run_setup(
+                SetupOptions(relay_config=relay_config, scope="custom", opencode_config=opencode),
+                environ=environment,
+            )
+            state = json.loads(
+                (root / "state" / "harness-relay" / "setup.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+            record = next(iter(state["integrations"].values()))
+            self.assertFalse(record["instruction_fragment_owned"])
+
+            run_uninstall(
+                UninstallOptions(scope="custom", opencode_config=opencode),
+                environ=environment,
+            )
+            self.assertTrue(instruction.exists())
+
+    def test_pending_journal_records_fragment_before_mcp_write(self) -> None:
+        with self._workspace() as (root, environment, relay_config, opencode):
+            real_checked = setup_module.atomic_write_checked
+
+            def fail_opencode(path, expected, content, operation):
+                if path == opencode:
+                    raise OSError("injected OpenCode interruption")
+                return real_checked(path, expected, content, operation)
+
+            with mock.patch.object(
+                setup_module, "atomic_write_checked", side_effect=fail_opencode
+            ):
+                with self.assertRaises(OSError):
+                    run_setup(
+                        SetupOptions(
+                            relay_config=relay_config,
+                            scope="custom",
+                            opencode_config=opencode,
+                        ),
+                        environ=environment,
+                    )
+            pending = json.loads(
+                (root / "state" / "harness-relay" / "setup.pending.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+            record = pending["record"]
+            self.assertTrue(record["instruction_fragment_owned"])
+            self.assertFalse(record["mcp_owned"])
+            self.assertFalse(record["instruction_entry_owned"])
+
+            recovered = run_setup(
+                SetupOptions(relay_config=relay_config, scope="custom", opencode_config=opencode),
+                environ=environment,
+            )
+            self.assertTrue(recovered.opencode_changed)
 
     def _workspace(self):
         context = tempfile.TemporaryDirectory()

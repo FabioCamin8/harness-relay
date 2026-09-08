@@ -17,7 +17,7 @@ HarnessRelay has no reasoning model, model catalog, provider API, authentication
 
 ## Configuration and setup
 
-Keep one versioned JSON file for HarnessRelay. Suggested concerns are enabled adapter names, executable paths, optional role preferences, and local storage locations. The exact schema is implemented in PR-2; do not add speculative settings. The packaged JSON Schema owns structural validation (types, names, and allowed values), while the runtime validator owns cross-field semantics such as requiring every role target to be enabled. Both layers are required; schema validity alone is not configuration validity.
+Keep one versioned JSON file for HarnessRelay. Suggested concerns are enabled adapter names, executable paths, optional role preferences, and local storage locations. The exact schema is implemented in PR-2; do not add speculative settings. The packaged JSON Schema owns standard structural validation, while the runtime validator adds representation and cross-field rules. In particular, JSON Schema treats the numeric token `1.0` as an integer; HarnessRelay requires the decoded version to be an integer value. Both layers are required, and schema validity alone is not configuration validity.
 
 Do not copy OpenCode's master model into this file. Retain the user's existing model selection and provider configuration. Worker model defaults also remain native. Task-level overrides are optional, explicit, and validated by the adapter.
 

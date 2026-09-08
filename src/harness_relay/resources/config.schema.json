@@ -6,7 +6,7 @@
   "additionalProperties": false,
   "required": ["version"],
   "properties": {
-    "version": {"const": 1},
+    "version": {"type": "integer", "const": 1},
     "workers": {
       "type": "object",
       "additionalProperties": false,
@@ -35,9 +35,9 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "data": {"type": "string", "minLength": 1, "pattern": "^[^\\u0000]*$"},
-        "worktrees": {"type": "string", "minLength": 1, "pattern": "^[^\\u0000]*$"},
-        "artifacts": {"type": "string", "minLength": 1, "pattern": "^[^\\u0000]*$"}
+        "data": {"type": "string", "pattern": "^(?:/|~/|~$)[^\\u0000]*$"},
+        "worktrees": {"type": "string", "pattern": "^(?:/|~/|~$)[^\\u0000]*$"},
+        "artifacts": {"type": "string", "pattern": "^(?:/|~/|~$)[^\\u0000]*$"}
       }
     }
   }

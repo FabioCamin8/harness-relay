@@ -68,7 +68,7 @@ The relay config is strict JSON, versioned at `1`, and defaults every worker to 
 
 Omit `executable` to use PATH discovery. A role must reference an enabled `codex`, `claude`, or `agy` worker. This file has no model, provider, or authentication settings; those remain owned by OpenCode and each native worker.
 
-The packaged JSON Schema checks structural types, names, and allowed values. Runtime validation additionally enforces cross-field rules such as a role referring to an enabled worker; JSON Schema alone intentionally accepts that structurally valid but semantically invalid intermediate document.
+The packaged JSON Schema checks structural types, names, and allowed values. Runtime validation additionally enforces representation and cross-field rules, such as requiring the version token to decode as an integer and a role to refer to an enabled worker. JSON Schema's standard numeric model treats `1.0` as an integer; HarnessRelay's runtime deliberately rejects that representation.
 
 ## Boundaries
 
