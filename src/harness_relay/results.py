@@ -14,6 +14,7 @@ MAX_EVIDENCE_BYTES = 256 * 1024
 MAX_STRUCTURED_TEXT_BYTES = 16 * 1024
 MAX_EVENT_EVIDENCE_BYTES = 128 * 1024
 MAX_CLAIM_EVIDENCE_BYTES = 64 * 1024
+MAX_MCP_RESULT_BYTES = 512 * 1024
 
 _OUTCOMES = frozenset(
     (
@@ -157,7 +158,7 @@ def build_result(
             "omitted_events": omitted,
         },
     )
-    return {
+    result = {
         "result_schema_version": RESULT_SCHEMA_VERSION,
         "run": {
             "id": run_id,
@@ -199,6 +200,7 @@ def build_result(
             "parse_error": native.parse_error,
         },
     }
+    return _fit_mcp_result(result)
 
 
 def validate_result(value: Mapping[str, Any]) -> None:
@@ -418,6 +420,76 @@ def _json_size(value: Any) -> int:
             "utf-8", "replace"
         )
     )
+
+
+def _mcp_text_size(value: Any) -> int:
+    """Measure a value after JSON text content and protocol string escaping."""
+    content = json.dumps(
+        value, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+    )
+    return len(json.dumps(content, ensure_ascii=False).encode("utf-8", "replace"))
+
+
+def _fit_mcp_result(result: dict[str, Any]) -> dict[str, Any]:
+    """Keep a normalized result usable when embedded in one MCP text response."""
+    if _mcp_text_size(result) <= MAX_MCP_RESULT_BYTES:
+        return result
+
+    marker = "[TRUNCATED: aggregate result exceeded MCP response budget]"
+    for container, key in (
+        (result["evidence"], "stdout"),
+        (result["evidence"], "stderr"),
+        (result["validation"], "stdout"),
+        (result["validation"], "stderr"),
+    ):
+        if container[key]:
+            container[key] = _bounded(str(container[key]), MAX_STRUCTURED_TEXT_BYTES)
+    result["native"]["summary"] = (
+        _bounded(str(result["native"]["summary"]), MAX_STRUCTURED_TEXT_BYTES)
+        if result["native"]["summary"] is not None
+        else None
+    )
+    if _mcp_text_size(result) <= MAX_MCP_RESULT_BYTES:
+        return result
+
+    result["native"]["claims"] = [{"kind": "worker_claim", "text": marker}]
+    result["native"]["summary"] = marker
+    result["evidence"]["events"] = [
+        {"harness_relay_truncated": True, "omitted_events": len(result["evidence"]["events"])}
+    ]
+    if _mcp_text_size(result) <= MAX_MCP_RESULT_BYTES:
+        return result
+
+    for snapshot_name in ("after_worker", "after_validation"):
+        snapshot = result["git"].get(snapshot_name)
+        if not isinstance(snapshot, dict):
+            continue
+        for name in (
+            "committed_delta",
+            "staged_changes",
+            "unstaged_changes",
+            "status",
+        ):
+            if snapshot.get(name):
+                snapshot[name] = [
+                    {"status": "TRUNCATED", "path": marker, "old_path": None}
+                ]
+        if snapshot.get("untracked_files"):
+            snapshot["untracked_files"] = [marker]
+    if result["git"].get("errors"):
+        result["git"]["errors"] = [marker]
+    if result["acceptance"].get("evidence"):
+        result["acceptance"]["evidence"] = [marker]
+    result["invocation"]["argv"] = [result["invocation"]["argv"][0], marker]
+    if result["validation"].get("argv"):
+        result["validation"]["argv"] = [result["validation"]["argv"][0], marker]
+    if _mcp_text_size(result) <= MAX_MCP_RESULT_BYTES:
+        return result
+
+    result["evidence"].update(stdout=marker, stderr=marker)
+    result["validation"].update(stdout=marker, stderr=marker)
+    result["git"].update(after_worker=None, after_validation=None, errors=[marker])
+    return result
 
 
 def safe_evidence_text(value: str | bytes) -> str:

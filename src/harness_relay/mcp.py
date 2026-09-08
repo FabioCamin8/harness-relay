@@ -249,7 +249,7 @@ class McpServer:
 
     @staticmethod
     def _success(request_id: Any, value: Any, error: bool = False) -> dict[str, Any]:
-        return {"jsonrpc": "2.0", "id": request_id, "result": {"content": [{"type": "text", "text": json.dumps(value, sort_keys=True)}], "isError": error}}
+        return {"jsonrpc": "2.0", "id": request_id, "result": {"content": [{"type": "text", "text": json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))}], "isError": error}}
 
     @staticmethod
     def _error(request_id: Any, code: int, message: str, data: Any = None) -> dict[str, Any]:

@@ -167,29 +167,59 @@ class Pr3Test(unittest.TestCase):
             validate_result(result)
 
     def test_structured_evidence_has_aggregate_budget_and_fits_mcp_response(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            large = "x" * (240 * 1024)
-            payload = "\n".join(
-                json.dumps(
-                    {"type": "turn.completed", "text": large, "summary": large}
+        for label, content, validation in (
+            ("ascii", "x", None),
+            ("unicode", "é", None),
+            ("quotes", '"\\', None),
+            (
+                "worker-and-validation",
+                '"\\',
+                ValidationRequest(
+                    (
+                        sys.executable,
+                        "-c",
+                        "import sys; sys.stdout.write(chr(34)*240000); "
+                        "sys.stderr.write(chr(92)*240000)",
+                    ),
+                    Path("/tmp"),
+                ),
+            ),
+        ):
+            with self.subTest(label=label), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                large = content * (240 * 1024)
+                payload = "\n".join(
+                    json.dumps(
+                        {"type": "turn.completed", "text": large, "summary": large},
+                        ensure_ascii=False,
+                    )
+                    for _ in range(5)
                 )
-                for _ in range(5)
-            )
-            fake = self._fake_worker(root, payload)
-            result = run_task(
-                DetectedWorker("codex", fake, "0.153.4", "test"),
-                TaskRequest(prompt="ignored", cwd=root, timeout=2),
-            )
-            self.assertEqual(result["native"]["outcome"], "success")
-            self.assertIn("[TRUNCATED]", json.dumps(result["native"]))
-            self.assertIn("[TRUNCATED]", json.dumps(result["evidence"]["events"]))
-            response = McpServer._success(
-                1, {"run_id": "bounded", "state": "completed", "result": result}
-            )
-            line = json.dumps(response, ensure_ascii=False, separators=(",", ":"))
-            self.assertLessEqual(len(line.encode()), MAX_MESSAGE)
-            validate_result(result)
+                fake = self._fake_worker(root, payload)
+                requested_validation = validation
+                if validation is not None:
+                    requested_validation = ValidationRequest(
+                        validation.argv, root, validation.timeout
+                    )
+                result = run_task(
+                    DetectedWorker("codex", fake, "0.153.4", "test"),
+                    TaskRequest(prompt="ignored", cwd=root, timeout=2),
+                    validation=requested_validation,
+                )
+                self.assertEqual(result["native"]["outcome"], "success")
+                self.assertIn("[TRUNCATED", json.dumps(result["native"]))
+                self.assertIn(
+                    "TRUNCATED", json.dumps(result["evidence"]["events"])
+                )
+                response = McpServer._success(
+                    1, {"run_id": "bounded", "state": "completed", "result": result}
+                )
+                line = json.dumps(
+                    response, ensure_ascii=False, separators=(",", ":")
+                )
+                self.assertLessEqual(len(line.encode()), MAX_MESSAGE)
+                self.assertNotIn('"code":-32603', line)
+                validate_result(result)
 
     def test_adapter_specific_nested_events_and_stderr_are_classified(self) -> None:
         fixtures = (
