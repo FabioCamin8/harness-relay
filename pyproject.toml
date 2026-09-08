@@ -22,4 +22,8 @@ harness-relay = "harness_relay.cli:main"
 
 [tool.setuptools]
 package-dir = { "" = "src" }
-packages = ["harness_relay"]
+packages = ["harness_relay", "harness_relay.resources"]
+
+[tool.setuptools.package-data]
+harness_relay = ["resources/*.json"]
+"harness_relay.resources" = ["*.json"]

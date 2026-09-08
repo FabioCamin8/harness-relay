@@ -1,6 +1,6 @@
 # Implementation plan
 
-Baseline: 2026-09-07. Status: PR-1 candidate implementation under review; main remains the documentation bootstrap.
+Baseline: 2026-09-07. Status: PR-1 is merged; PR-2 implementation candidate is being verified on its dedicated branch.
 
 ## Product contract
 
@@ -18,7 +18,7 @@ Remote desktop and Apple capabilities are optional follow-on work. Preserve thei
 
 ## Execution model
 
-Use five small, sequential PRs. `PR-1` through `PR-5` below are work-package identifiers, not existing GitHub PR numbers. Each PR names its base SHA, candidate SHA, scope, evidence, and unverified claims. Astra reviews; Luna implements. Read [the workflow](docs/WORKFLOW.md).
+Use five small, sequential PRs. `PR-1` through `PR-5` below are work-package identifiers, not existing GitHub PR numbers. Each PR names its base SHA, candidate SHA, scope, evidence, and unverified claims. Sol leads, coordinates, and reviews; one Luna XHigh worker implements at a time; no nested agents. Astra Medium is reserved for difficult blockers or high-risk decisions. Read [the workflow](docs/WORKFLOW.md).
 
 The documentation bootstrap may exist on main. Subsequent implementation uses branches and PRs. No automatic merging, release tagging, deployment, or edits to the maintainer's working installation are authorized by this plan alone.
 
@@ -113,14 +113,14 @@ Update this table only with actual PR/commit evidence. PR bodies hold detailed t
 | Package | State | PR / reviewed candidate |
 | --- | --- | --- |
 | PR-1 | Reviewed PASS | [#1](https://github.com/FabioCamin8/harness-relay/pull/1) |
-| PR-2 | Not started | — |
+| PR-2 | Implementation candidate; G03/G04 offline verification in progress | — |
 | PR-3 | Not started | — |
 | PR-4 | Not started | — |
 | PR-5 | Not started | — |
 
 ## Stop rules and deferred work
 
-Astra can request a narrowly justified amendment when implementation evidence contradicts an assumption. Record the decision and affected acceptance gate; do not silently expand scope.
+Sol can request a narrowly justified amendment when implementation evidence contradicts an assumption. Escalate only difficult blockers or high-risk decisions to Astra Medium. Record the decision and affected acceptance gate; do not silently expand scope.
 
 No automatic fallback/merge/retry, provider proxy, central secrets store, model ranking, token/cost optimizer, scheduler, queue, database, dashboard, shared-memory service, global skill synchronization, or self-updating harness installer.
 

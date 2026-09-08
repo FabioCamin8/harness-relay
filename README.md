@@ -2,7 +2,7 @@
 
 Native harness delegation for OpenCode. Bring your own orchestrator model, keep your native agents, and delegate bounded tasks with structured results.
 
-**Status: PR-1 package foundation.** The repository contains a minimal installable package with `--help` and `--version`. Setup, adapters, MCP delegation, and the rest of the product remain planned work.
+**Status: PR-2 configuration/setup candidate.** The package now provides strict worker configuration, enabled-only executable discovery, and reversible OpenCode setup/uninstall. Native task adapters, MCP runtime delegation, worktrees, lifecycle, and doctor remain later work.
 
 ## One master, native workers
 
@@ -30,25 +30,35 @@ The first release has no mandatory GLM/Z.AI provider, second OpenCode worker, sh
 
 ## Intended workflow
 
-Setup detects supported installed harnesses; the user chooses which to enable and reviews a minimal OpenCode integration. The master delegates a bounded task to a named worker. Writable tasks use dedicated Git worktrees. The worker returns native output, which is normalized with validation evidence. Results and useful work are retained; merging is a separate explicit decision.
+Setup validates explicitly selected supported harnesses; the user chooses which to enable and reviews a minimal OpenCode integration. The master delegates a bounded task to a named worker. Writable tasks use dedicated Git worktrees. The worker returns native output, which is normalized with validation evidence. Results and useful work are retained; merging is a separate explicit decision.
 
 Available CLI surface:
 
 ```text
 harness-relay --help
 harness-relay --version
+harness-relay setup --dry-run --non-interactive --relay-config PATH --scope global
+harness-relay setup --non-interactive --relay-config PATH --scope project
+harness-relay validate-config PATH
+harness-relay uninstall --scope global
 ```
 
-Planned CLI surface, **not available yet**:
+`setup` supports an interactive worker/scope selection and equivalent file-driven non-interactive use. It writes only the user-local relay config when needed, a namespaced OpenCode MCP entry, a marked instruction fragment, and its ownership record. `--dry-run` performs validation and previews changes without writing. `uninstall` removes only unchanged owned integration content. `doctor`, native delegation, and live worker execution are later work.
 
-```text
-harness-relay setup --dry-run
-harness-relay setup
-harness-relay doctor
-harness-relay uninstall
+The relay config is strict JSON, versioned at `1`, and defaults every worker to disabled:
+
+```json
+{
+  "version": 1,
+  "workers": {
+    "codex": {"enabled": true, "executable": "/usr/local/bin/codex"}
+  },
+  "roles": {"implementer": "codex"},
+  "paths": {"data": "~/.local/share/harness-relay"}
+}
 ```
 
-Setup must also support non-interactive configuration. Install the tested package artifact with standard Python tooling; no HarnessRelay setup subcommand is available yet.
+Omit `executable` to use PATH discovery. A role must reference an enabled `codex`, `claude`, or `agy` worker. This file has no model, provider, or authentication settings; those remain owned by OpenCode and each native worker.
 
 ## Boundaries
 
@@ -68,12 +78,12 @@ Setup must also support non-interactive configuration. Install the tested packag
 | [Architecture](docs/ARCHITECTURE.md) | Ownership, configuration, invocation, results, and lifecycle. |
 | [Acceptance](docs/ACCEPTANCE.md) | Offline tests, explicit live checks, and release criteria. |
 | [Compatibility](docs/compatibility.md) | Evidence-based support matrix and upstream references. |
-| [Development workflow](docs/WORKFLOW.md) | Astra orchestration/review and Luna implementation handoffs. |
+| [Development workflow](docs/WORKFLOW.md) | Sol coordination/review, one Luna implementation writer, and escalation boundaries. |
 
-Start implementation with PR-1 in the plan. Do not import private runtime state or install this project over a working environment during development.
+PR-1 is the merged public foundation; PR-2 is the current configuration/setup candidate. Do not import private runtime state or install this project over a working environment during development.
 
 ## License and affiliation
 
-HarnessRelay is licensed under the MIT License. The PR-1 implementation is original public code written for this repository; no private implementation source, history, runtime state, or other private material was imported.
+HarnessRelay is licensed under the MIT License. The public implementation is original code written for this repository; no private implementation source, history, runtime state, or other private material was imported.
 
 HarnessRelay is an independent integration project. It is not presented as an official product of any supported harness or model provider.

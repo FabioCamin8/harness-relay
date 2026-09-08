@@ -24,6 +24,10 @@ Normal CI uses fake native executables, temporary homes/configs, and disposable 
 | G12 — MCP and recursion | PR-4 | Supported handshake/error handling, protocol-clean stdout, runtime schema validation, enabled-only discovery/invocation, responsive cancel/status behavior, and worker re-entry rejection are tested. Native internal subagents are not prohibited. |
 | G13 — Doctor | PR-4 | Doctor is read-only and inference-free; detection/config validity differ from dated capability checks; disabled/optional capabilities are not probed or treated as required failures; required enabled failures are actionable. |
 
+### PR-2 evidence
+
+G03 and G04 have passed offline verification for the current PR-2 candidate. The exact candidate SHA and environment are recorded in the PR handoff. The focused command is `PYTHONPATH=src python3 -m unittest discover -s tests -p 'test_pr2.py' -v`; the installed-artifact command is `env -u PYTHONPATH /tmp/harness-relay-pr2-venv/bin/python -m unittest discover -s tests -v`. Both cover strict config failures, enabled-only discovery, JSON/JSONC preservation, scope conflicts, dry-run, repeat no-op, ownership-safe uninstall, and injected interruption recovery. No live worker task, MCP runtime, worktree, lifecycle, doctor, CI/release, or G14 claim is made here.
+
 Use adversarial but harmless fixtures: filenames with spaces and unusual characters, identifiers containing separators, a fake CLI that spawns a child, a worker that commits and exits, an existing dirty checkout, and a JSONC config containing unrelated comments/keys. Do not treat a denylist of the maintainer's removed tools as a universal product test.
 
 If a gate is not applicable to the selected initial platform or an optional adapter, state the exact boundary. That does not permit claiming support for the omitted case.
