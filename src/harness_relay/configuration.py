@@ -20,16 +20,43 @@ SUPPORTED_CONFIG_VERSION = 1
 
 @dataclass(frozen=True)
 class AdapterSpec:
-    """Static identity used by setup discovery until PR-3 adds adapters."""
+    """Static identity and native contract metadata for one adapter."""
 
     name: str
     executable: str
+    supported_versions: tuple[str, ...] = ()
+    effort_values: frozenset[str] = frozenset()
+    output_format: str = "stream-json"
+    codex_sandbox: bool = False
+
+    def supports_version(self, version: str) -> bool:
+        """Return whether this executable version has a verified contract."""
+        return version in self.supported_versions
 
 
 ADAPTER_REGISTRY = (
-    AdapterSpec("codex", "codex"),
-    AdapterSpec("claude", "claude"),
-    AdapterSpec("agy", "agy"),
+    AdapterSpec(
+        "codex",
+        "codex",
+        ("0.153.4",),
+        frozenset(),
+        "jsonl",
+        codex_sandbox=True,
+    ),
+    AdapterSpec(
+        "claude",
+        "claude",
+        ("2.1.104",),
+        frozenset(("low", "medium", "high", "max")),
+        "stream-json",
+    ),
+    AdapterSpec(
+        "agy",
+        "agy",
+        ("1.1.27",),
+        frozenset(("low", "medium", "high")),
+        "stream-json",
+    ),
 )
 ADAPTERS_BY_NAME = {adapter.name: adapter for adapter in ADAPTER_REGISTRY}
 SUPPORTED_ADAPTERS = tuple(adapter.name for adapter in ADAPTER_REGISTRY)
