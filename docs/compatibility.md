@@ -1,6 +1,6 @@
 # Compatibility and evidence
 
-Status at documentation bootstrap, 2026-09-07: **no HarnessRelay package, platform, adapter, or protocol version has been verified yet**. This matrix is a plan, not a compatibility claim inherited from a private reference implementation.
+Status at PR-1 candidate review, 2026-09-08: **the package foundation has been verified on Debian GNU/Linux 13 with Python 3.13.5 under a non-root UID; no HarnessRelay adapter or protocol version has been verified yet**. This matrix is still a plan for later capabilities, not a compatibility claim inherited from a private reference implementation.
 
 ## Intended support
 
@@ -14,7 +14,7 @@ Status at documentation bootstrap, 2026-09-07: **no HarnessRelay package, platfo
 | Other installed CLIs | Possible future native workers | Unsupported until a named adapter and tests exist; detection alone is insufficient. |
 | Remote desktop | Optional real GUI capability | Deferred, disabled by default; no specific product/host required by core. |
 | Apple tooling | Optional specialized capability | Deferred, disabled by default; no Mac required by core. |
-| Linux, non-root user | First required platform | Planned; temporary-home/package acceptance must pass. |
+| Linux, non-root user | First required platform | PR-1 package foundation verified on Debian GNU/Linux 13 with Python 3.13.5 and UID 1000; later product capabilities remain unverified. |
 | macOS / WSL / native Windows | Additional platforms | Unverified; do not claim support without platform-specific evidence. |
 
 OpenCode's chosen model must be capable of using the exposed tools for the intended task. Model independence does not promise equal reasoning quality or tool reliability across models. HarnessRelay does not rank them or select provider accounts.

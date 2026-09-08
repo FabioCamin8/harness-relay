@@ -7,7 +7,6 @@ import io
 import os
 from importlib import metadata, resources
 from pathlib import Path
-import shutil
 import subprocess
 import sys
 import tempfile
@@ -45,8 +44,8 @@ class PackageTests(unittest.TestCase):
         self.assertEqual(version_output.getvalue().strip(), "harness-relay 0.1.0a1")
 
     def test_installed_console_script_outside_checkout(self) -> None:
-        executable = shutil.which("harness-relay")
-        self.assertIsNotNone(executable, "run this test after installing the wheel")
+        executable = Path(sys.executable).with_name("harness-relay")
+        self.assertTrue(executable.is_file(), "run this test in the wheel's virtual environment")
 
         with tempfile.TemporaryDirectory() as temp_dir:
             env = os.environ.copy()

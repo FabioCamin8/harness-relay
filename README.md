@@ -74,6 +74,6 @@ Start implementation with PR-1 in the plan. Do not import private runtime state 
 
 ## License and affiliation
 
-HarnessRelay is released under the MIT License. The PR-1 implementation is original public code written for this repository; no private implementation source, history, runtime state, or other private material was imported.
+HarnessRelay is licensed under the MIT License. The PR-1 implementation is original public code written for this repository; no private implementation source, history, runtime state, or other private material was imported.
 
 HarnessRelay is an independent integration project. It is not presented as an official product of any supported harness or model provider.

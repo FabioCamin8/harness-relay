@@ -1,6 +1,6 @@
 # Implementation plan
 
-Baseline: 2026-09-07. Status: approved product direction; implementation not started in this repository.
+Baseline: 2026-09-07. Status: PR-1 candidate implementation under review; main remains the documentation bootstrap.
 
 ## Product contract
 
@@ -112,7 +112,7 @@ Update this table only with actual PR/commit evidence. PR bodies hold detailed t
 
 | Package | State | PR / reviewed candidate |
 | --- | --- | --- |
-| PR-1 | Not started | — |
+| PR-1 | Candidate under review | [#1](https://github.com/FabioCamin8/harness-relay/pull/1) |
 | PR-2 | Not started | — |
 | PR-3 | Not started | — |
 | PR-4 | Not started | — |
