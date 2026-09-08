@@ -15,6 +15,26 @@ from .configuration import (
     load_config,
     parse_config,
 )
+from .adapters import (
+    AdapterError,
+    Invocation,
+    TaskRequest,
+    UnsupportedOverrideError,
+    UnsupportedVersionError,
+    adapter_for,
+    build_invocation,
+)
+from .execution import ValidationRequest, run_task
+from .results import (
+    RESULT_SCHEMA_VERSION,
+    NativeReport,
+    ResultValidationError,
+    build_result,
+    packaged_result_schema,
+    parse_native_output,
+    validate_result,
+)
+from .git_evidence import GitEvidenceError, capture_base, capture_snapshot
 
 __all__ = [
     "__version__",
@@ -29,4 +49,23 @@ __all__ = [
     "default_config",
     "load_config",
     "parse_config",
+    "AdapterError",
+    "Invocation",
+    "TaskRequest",
+    "UnsupportedOverrideError",
+    "UnsupportedVersionError",
+    "adapter_for",
+    "build_invocation",
+    "ValidationRequest",
+    "run_task",
+    "RESULT_SCHEMA_VERSION",
+    "NativeReport",
+    "ResultValidationError",
+    "build_result",
+    "packaged_result_schema",
+    "parse_native_output",
+    "validate_result",
+    "GitEvidenceError",
+    "capture_base",
+    "capture_snapshot",
 ]

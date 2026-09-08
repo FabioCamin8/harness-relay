@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import argparse
+import json
 from pathlib import Path
 import sys
 from typing import Sequence
 
 from . import __version__
+from .adapters import AdapterError, TaskRequest
 from .configuration import (
     ConfigurationError,
     SUPPORTED_ADAPTERS,
@@ -15,6 +17,9 @@ from .configuration import (
     load_config,
 )
 from .opencode import OpenCodeConfigError
+from .discovery import discover_worker
+from .execution import run_task
+from .results import ResultValidationError
 from .setup import SetupError, SetupOptions, run_setup
 from .uninstall import UninstallOptions, run_uninstall
 
@@ -94,6 +99,24 @@ def build_parser() -> argparse.ArgumentParser:
 
     validate = commands.add_parser("validate-config", help="validate one strict relay JSON config")
     validate.add_argument("path", type=Path, nargs="?", help="config path (default: XDG user config)")
+
+    delegate = commands.add_parser(
+        "delegate",
+        aliases=("run",),
+        help="run one explicitly enabled native worker and emit its normalized result",
+    )
+    delegate.add_argument("--relay-config", "--config", dest="relay_config", type=Path)
+    delegate.add_argument("--worker", required=True, choices=SUPPORTED_ADAPTERS)
+    delegate.add_argument("--prompt", required=True, help="task text passed to the native worker")
+    delegate.add_argument("--cwd", type=Path, default=Path.cwd())
+    delegate.add_argument("--model")
+    delegate.add_argument("--effort")
+    delegate.add_argument(
+        "--sandbox",
+        choices=("read-only", "workspace-write", "danger-full-access"),
+        help="explicit Codex sandbox override; native defaults are preserved when omitted",
+    )
+    delegate.add_argument("--timeout", type=float, default=300.0)
     return parser
 
 
@@ -123,8 +146,17 @@ def main(argv: Sequence[str] | None = None) -> int:
                 f"enabled workers: {', '.join(worker.name for worker in config.enabled_workers) or 'none'}"
             )
             return 0
+        if args.command in {"delegate", "run"}:
+            return _run_delegate(args)
         return 0
-    except (ConfigurationError, OpenCodeConfigError, SetupError, OSError) as exc:
+    except (
+        AdapterError,
+        ConfigurationError,
+        OpenCodeConfigError,
+        ResultValidationError,
+        SetupError,
+        OSError,
+    ) as exc:
         print(f"harness-relay: error: {exc}", file=sys.stderr)
         return 2
 
@@ -179,6 +211,30 @@ def _run_setup(args: argparse.Namespace) -> int:
     )
     _print_setup(plan)
     return 0
+
+
+def _run_delegate(args: argparse.Namespace) -> int:
+    user_paths = UserPaths.from_environment()
+    config = load_config(args.relay_config or user_paths.config_file)
+    worker_config = config.workers[args.worker]
+    if not worker_config.enabled:
+        raise ConfigurationError(
+            f"worker {args.worker!r} is disabled; enable it in the relay config before delegation"
+        )
+    worker = discover_worker(worker_config)
+    result = run_task(
+        worker,
+        TaskRequest(
+            prompt=args.prompt,
+            cwd=args.cwd.expanduser().resolve(),
+            model=args.model,
+            effort=args.effort,
+            sandbox=args.sandbox,
+            timeout=args.timeout,
+        ),
+    )
+    print(json.dumps(result, ensure_ascii=False, sort_keys=True))
+    return 0 if result["process"]["classification"] == "completed" and result["native"]["outcome"] == "success" else 1
 
 
 def _parse_workers(value: str) -> set[str]:
