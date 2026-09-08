@@ -1,6 +1,6 @@
 # Implementation plan
 
-Baseline: 2026-09-07. Status: PR-1 is merged; PR-2 is an unreviewed implementation candidate with local G03/G04 test evidence pending exact-SHA review.
+Baseline: 2026-09-07. Status: PR-1 is merged; PR-2 G03/G04 passed exact-SHA review at `8849e043f04e320f111fba8f11e070c012a45e03`, followed by a reviewed evidence-only delta.
 
 ## Product contract
 
@@ -114,7 +114,7 @@ Update this table only with actual PR/commit evidence. PR bodies hold detailed t
 | Package | State | PR / reviewed candidate |
 | --- | --- | --- |
 | PR-1 | Reviewed PASS | [#1](https://github.com/FabioCamin8/harness-relay/pull/1) |
-| PR-2 | Unreviewed candidate; local G03/G04 test evidence pending exact-SHA review | [#2](https://github.com/FabioCamin8/harness-relay/pull/2) |
+| PR-2 | Reviewed G03/G04 PASS at `8849e04`; evidence-only delta reviewed | [#2](https://github.com/FabioCamin8/harness-relay/pull/2) |
 | PR-3 | Not started | — |
 | PR-4 | Not started | — |
 | PR-5 | Not started | — |
