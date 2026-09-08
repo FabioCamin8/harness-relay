@@ -2,7 +2,7 @@
 
 Native harness delegation for OpenCode. Bring your own orchestrator model, keep your native agents, and delegate bounded tasks with structured results.
 
-**Status: PR-3 native-adapter candidate.** The package provides strict worker configuration, reversible OpenCode setup/uninstall, and offline-tested native invocation/result contracts for Codex, Claude Code, and AGY. MCP tools, managed worktrees, full lifecycle handling, and doctor remain later work. The setup-created MCP entry stays disabled until PR-4 supplies and verifies the runtime.
+**Status: PR-4 lifecycle candidate.** The package provides strict worker configuration, reversible setup/uninstall, offline-tested native adapters, managed worktrees, MCP stdio lifecycle handling, and read-only doctor diagnostics. Live OpenCode-to-worker capability remains unverified until G14.
 
 ## Installation prerequisites
 
@@ -48,13 +48,14 @@ harness-relay --version
 harness-relay setup --dry-run --non-interactive --relay-config PATH --scope global
 harness-relay setup --non-interactive --relay-config PATH --scope project
 harness-relay validate-config PATH
+harness-relay doctor --json --config PATH
 harness-relay delegate --worker codex --prompt "Review this repository" --cwd PATH
 harness-relay uninstall --scope global
 ```
 
-`setup` supports an interactive worker/scope selection and equivalent file-driven non-interactive use. It writes only the user-local relay config when needed, a namespaced OpenCode MCP entry (currently `enabled: false` pending PR-4), a marked instruction fragment, and its ownership record. `--dry-run` performs validation and previews changes without writing. `uninstall` removes only unchanged owned integration content.
+`setup` supports interactive and equivalent file-driven use. It writes only the user-local relay config when needed, a namespaced enabled MCP entry, a marked instruction fragment, and its ownership record. An unchanged PR-2-owned disabled entry is safely upgraded; an equivalent user-created or edited entry is not claimed. `uninstall` removes only unchanged owned content.
 
-`delegate` runs one enabled worker directly and prints the versioned normalized JSON result. It preserves native model, authentication, provider, permissions, hooks, MCPs, skills, and internal subagents unless the caller supplies an adapter-supported task override. Codex accepts an optional `--sandbox`; Claude Code and AGY reject that Codex-specific override. Live native tasks are not certified by the offline PR-3 tests. MCP exposure, managed writable worktrees, owned process groups, status/cancel tools, and doctor remain PR-4 work.
+`delegate` runs one enabled worker directly and prints normalized JSON. MCP exposes enabled workers only and requires an explicit repository/base commit, then reserves a distinct retained worktree. Status/cancel remain responsive and timeout/cancel stop the owned process group. `doctor` probes versions only for enabled workers and never calls inference. Native settings and internal subagents remain intact; HarnessRelay recursion is refused.
 
 The relay config is strict JSON, versioned at `1`, and defaults every worker to disabled:
 

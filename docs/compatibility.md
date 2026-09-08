@@ -1,12 +1,12 @@
 # Compatibility and evidence
 
-Status at the unreviewed PR-3 candidate, 2026-09-08: local offline configuration/setup and fake-native adapter tests have run on Debian GNU/Linux 13. Installed help and primary vendor documentation were checked for the three pinned native contracts below. No live HarnessRelay worker task or MCP protocol has been verified.
+Status at the unreviewed PR-4 candidate, 2026-09-08: 61 source and exact-wheel offline tests pass on Debian GNU/Linux 13. No live model task was invoked. MCP is fake-client tested; live OpenCode-to-worker G14 remains unverified.
 
 ## Intended support
 
 | Component | Intended role | Initial status / boundary |
 | --- | --- | --- |
-| OpenCode 1.18.29 | Only master; user-selected model | Supplied version inventory; no live HarnessRelay integration verified. Preserve effective native model/provider configuration. |
+| OpenCode 1.18.29 | Only master; user-selected model | Its `2025-11-25` initialize/list sequence was observed without inference; end-to-end HarnessRelay G14 remains unverified. |
 | Codex CLI 0.153.4 | Native local worker | Offline adapter contract verified for `codex exec --json`, optional model, cwd, and explicit sandbox; no live task verified. |
 | Claude Code 2.1.104 | Native local worker | Offline adapter contract verified for `claude -p --output-format stream-json` with optional model/effort; no live task or subscription verified. |
 | AGY / Antigravity 1.1.27 | Native local worker | Offline adapter contract verified for `agy -p --output-format stream-json` with optional model/effort; no live task verified. Text-only evidence would not certify repository/browser capability. |
@@ -38,7 +38,7 @@ Consulted during planning on 2026-09-07; re-check against the version actually i
 - [Codex non-interactive mode](https://developers.openai.com/codex/non-interactive-mode): native execution and structured output.
 - [Claude Code programmatic execution](https://code.claude.com/docs/en/headless): native non-interactive interface.
 - [Antigravity CLI headless mode](https://antigravity.google/docs/cli/headless/): native non-interactive interface, structured events, status, overrides, permissions, and timeout.
-- [MCP versioning and compatibility](https://modelcontextprotocol.io/specification/2026-07-28/basic/versioning): select a supported SDK/protocol combination rather than echoing an arbitrary client version.
+- [MCP 2025-11-25 lifecycle](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle): supported alpha handshake and version negotiation.
 - [Git worktrees](https://git-scm.com/docs/git-worktree): checkout ownership and shared repository state.
 
 For future adapters, add verified primary vendor documentation and installed-help evidence when implementation begins. Do not copy unverified CLI flags or model names from a previous environment.

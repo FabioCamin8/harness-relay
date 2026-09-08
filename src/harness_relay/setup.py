@@ -129,15 +129,6 @@ def run_setup(
     opencode_before = (
         opencode_text.encode("utf-8") if selection.path.is_file() else None
     )
-    try:
-        new_opencode_text, mcp_created, instruction_created = integrate(
-            opencode_text, str(instruction_path)
-        )
-    except Exception as exc:
-        if isinstance(exc, SetupError):
-            raise
-        raise SetupError(f"cannot prepare OpenCode config {selection.path}: {exc}") from exc
-
     old_state = _load_state(user_paths.state_dir / "setup.json")
     state_key = _state_key(selection)
     old_record = dict(old_state.get("integrations", {}).get(state_key, {}))
@@ -147,6 +138,24 @@ def run_setup(
         pending_record = pending.get("record", {})
         if isinstance(pending_record, dict):
             old_record.update(pending_record)
+    current_mcp_fragment = source_fragment(opencode_text, ["mcp", "harness-relay"])
+    allow_legacy_upgrade = bool(
+        old_record.get("mcp_owned", False)
+        and isinstance(old_record.get("mcp_fragment_hash"), str)
+        and current_mcp_fragment is not None
+        and _sha256(current_mcp_fragment.encode("utf-8"))
+        == old_record.get("mcp_fragment_hash")
+    )
+    try:
+        new_opencode_text, mcp_created, instruction_created = integrate(
+            opencode_text,
+            str(instruction_path),
+            allow_legacy_upgrade=allow_legacy_upgrade,
+        )
+    except Exception as exc:
+        if isinstance(exc, SetupError):
+            raise
+        raise SetupError(f"cannot prepare OpenCode config {selection.path}: {exc}") from exc
 
     fragment_exists = instruction_path.exists()
     instruction_before: bytes | None = None
@@ -196,7 +205,7 @@ def run_setup(
         ),
         mcp_fragment_hash=(
             _mcp_fragment_hash(new_opencode_text)
-            if mcp_created
+            if mcp_created or allow_legacy_upgrade
             else old_record.get("mcp_fragment_hash")
         ),
         instruction_entry_hash=(

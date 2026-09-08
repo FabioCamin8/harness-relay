@@ -19,6 +19,8 @@ from .configuration import (
 from .opencode import OpenCodeConfigError
 from .discovery import discover_worker
 from .execution import run_task
+from .doctor import diagnose
+from .mcp import serve_stdio
 from .results import ResultValidationError
 from .setup import SetupError, SetupOptions, run_setup
 from .uninstall import UninstallOptions, run_uninstall
@@ -117,6 +119,14 @@ def build_parser() -> argparse.ArgumentParser:
         help="explicit Codex sandbox override; native defaults are preserved when omitted",
     )
     delegate.add_argument("--timeout", type=float, default=300.0)
+
+    doctor = commands.add_parser("doctor", help="read-only, inference-free diagnostics")
+    doctor.add_argument("--relay-config", "--config", dest="relay_config", type=Path)
+    doctor.add_argument("--json", action="store_true", help="emit machine-readable JSON")
+
+    mcp = commands.add_parser("mcp", help="run the bounded MCP server")
+    mcp.add_argument("--relay-config", "--config", dest="relay_config", type=Path)
+    mcp.add_argument("--stdio", action="store_true", help="serve newline-delimited JSON-RPC on stdio")
     return parser
 
 
@@ -148,6 +158,21 @@ def main(argv: Sequence[str] | None = None) -> int:
             return 0
         if args.command in {"delegate", "run"}:
             return _run_delegate(args)
+        if args.command == "doctor":
+            user_paths = UserPaths.from_environment()
+            report = diagnose(load_config(args.relay_config or user_paths.config_file))
+            if args.json:
+                print(json.dumps(report, ensure_ascii=False, sort_keys=True))
+            else:
+                for name, item in report["workers"].items():
+                    print(f"{name}: enabled={item['enabled']} detected={item['detected']} version={item['version'] or '-'}")
+            return 1 if any(item["enabled"] and item["detected"] is False for item in report["workers"].values()) else 0
+        if args.command == "mcp":
+            if not args.stdio:
+                parser.error("mcp currently requires --stdio")
+            user_paths = UserPaths.from_environment()
+            serve_stdio(load_config(args.relay_config or user_paths.config_file), user_paths)
+            return 0
         return 0
     except (
         AdapterError,
@@ -155,6 +180,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         OpenCodeConfigError,
         ResultValidationError,
         SetupError,
+        RuntimeError,
         OSError,
     ) as exc:
         print(f"harness-relay: error: {exc}", file=sys.stderr)
