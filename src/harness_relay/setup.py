@@ -22,13 +22,13 @@ from .discovery import DetectedWorker, discover_enabled
 from .jsonc import parse as parse_jsonc, source_fragment
 from .opencode import (
     INSTRUCTION_TEXT,
-    MCP_ENTRY,
     OpenCodeConfigError,
     ScopeSelection,
     check_higher_precedence_conflicts,
     inspect_config,
     integrate,
     select_scope,
+    configured_mcp_entry,
 )
 
 
@@ -91,6 +91,7 @@ def run_setup(
     """Validate config, inspect scopes, and apply a minimal owned integration."""
     user_paths = UserPaths.from_environment(environ, home)
     config_path = (options.relay_config or user_paths.config_file).expanduser().resolve()
+    mcp_entry = configured_mcp_entry(config_path)
     config_exists = config_path.is_file()
     config_before = _optional_bytes(config_path)
     if config_exists:
@@ -121,7 +122,9 @@ def run_setup(
     )
     instruction_path = _instruction_path(user_paths)
     try:
-        check_higher_precedence_conflicts(selection, str(instruction_path))
+        check_higher_precedence_conflicts(
+            selection, str(instruction_path), mcp_entry=mcp_entry
+        )
     except OpenCodeConfigError as exc:
         raise SetupError(str(exc)) from exc
 
@@ -151,6 +154,7 @@ def run_setup(
             opencode_text,
             str(instruction_path),
             allow_legacy_upgrade=allow_legacy_upgrade,
+            mcp_entry=mcp_entry,
         )
     except Exception as exc:
         if isinstance(exc, SetupError):
@@ -208,6 +212,7 @@ def run_setup(
             if mcp_created or allow_legacy_upgrade
             else old_record.get("mcp_fragment_hash")
         ),
+        mcp_value_hash=_sha256(_canonical_json(mcp_entry).encode("utf-8")),
         instruction_entry_hash=(
             _instruction_entry_hash(new_opencode_text, str(instruction_path))
             if instruction_created
@@ -363,6 +368,7 @@ def _state_with_record(
     instruction_entry_owned: bool,
     instruction_fragment_owned: bool,
     mcp_fragment_hash: str | None,
+    mcp_value_hash: str,
     instruction_entry_hash: str | None,
     fragment_hash: str,
 ) -> dict:
@@ -372,7 +378,7 @@ def _state_with_record(
         "config_path": str(selection.path),
         "instruction_path": str(instruction_path),
         "mcp_name": "harness-relay",
-        "mcp_value_hash": _sha256(_canonical_json(MCP_ENTRY).encode("utf-8")),
+        "mcp_value_hash": mcp_value_hash,
         "mcp_fragment_hash": mcp_fragment_hash,
         "mcp_owned": mcp_owned,
         "instruction_entry_owned": instruction_entry_owned,

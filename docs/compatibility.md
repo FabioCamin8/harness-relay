@@ -1,20 +1,20 @@
 # Compatibility and evidence
 
-Status at the unreviewed PR-4 candidate, 2026-09-08: 61 source and exact-wheel offline tests pass on Debian GNU/Linux 13. No live model task was invoked. MCP is fake-client tested; live OpenCode-to-worker G14 remains unverified.
+Status at cumulative package code candidate `04c5d43`, 2026-09-08: 78/78 source tests pass on Debian GNU/Linux 13, and its installed wheel passes 78/78 outside the checkout on CPython 3.13.5 as UID 65534 and CPython 3.9.25. Public artifact scans, archive validation, six hosted exact-head checks, and independent review pass. Maintainer review and merge remain pending. The earlier `7afa87f` artifact supplies the separately recorded live OpenCode-to-Codex repository edit with independent validation.
 
 ## Intended support
 
 | Component | Intended role | Initial status / boundary |
 | --- | --- | --- |
-| OpenCode 1.18.29 | Only master; user-selected model | Its `2025-11-25` initialize/list sequence was observed without inference; end-to-end HarnessRelay G14 remains unverified. |
-| Codex CLI 0.153.4 | Native local worker | Offline adapter contract verified for `codex exec --json`, optional model, cwd, and explicit sandbox; no live task verified. |
+| OpenCode 1.18.29 | Only master; user-selected model | Live typed delegation passed with an authorized OpenRouter master. A second authorized model returned a bounded response while the worker config hash stayed unchanged. |
+| Codex CLI 0.153.4 | Native local worker | Offline adapter contract and one live isolated repository edit passed. The passing writable run explicitly selected `workspace-write`; the user's inherited read-only default correctly produced no edit and failed independent validation. |
 | Claude Code 2.1.104 | Native local worker | Offline adapter contract verified for `claude -p --output-format stream-json` with optional model/effort; no live task or subscription verified. |
 | AGY / Antigravity 1.1.27 | Native local worker | Offline adapter contract verified for `agy -p --output-format stream-json` with optional model/effort; no live task verified. Text-only evidence would not certify repository/browser capability. |
 | Gemini CLI | Additional native worker | Deferred optional adapter, not a release prerequisite. |
 | Other installed CLIs | Possible future native workers | Unsupported until a named adapter and tests exist; detection alone is insufficient. |
 | Remote desktop | Optional real GUI capability | Deferred, disabled by default; no specific product/host required by core. |
 | Apple tooling | Optional specialized capability | Deferred, disabled by default; no Mac required by core. |
-| Linux, non-root user on Debian GNU/Linux 13 | First required platform | Supplied platform inventory; local offline setup tests ran here. Native worker and MCP capabilities remain unverified. |
+| Linux, non-root user on Debian GNU/Linux 13 | First required platform | The exact `04c5d43` wheel passes 78/78 as UID 65534 on CPython 3.13.5 and 78/78 on CPython 3.9.25 outside the checkout without `PYTHONPATH`. Live inference used the existing authorized maintainer account with the earlier `7afa87f` artifact; no auth material was copied or permission-weakened. |
 | macOS / WSL / native Windows | Additional platforms | Unverified; do not claim support without platform-specific evidence. |
 
 OpenCode's chosen model must be capable of using the exposed tools for the intended task. Model independence does not promise equal reasoning quality or tool reliability across models. HarnessRelay does not rank them or select provider accounts.

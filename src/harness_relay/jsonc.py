@@ -200,7 +200,10 @@ def _validated(text: str) -> _Document:
     except (TypeError, ValueError) as exc:
         raise JsoncError(f"invalid JSONC: {exc}") from exc
     root = tree.root_node
-    root_value = root.named_children[0] if root.named_children else None
+    root_value = next(
+        (child for child in root.named_children if _is_value_node(child)),
+        None,
+    )
     if root_value is None:
         raise JsoncError("empty JSONC document")
     return _Document(source, tree, root_value, value, trailing)

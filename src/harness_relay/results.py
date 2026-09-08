@@ -11,6 +11,10 @@ from typing import Any, Iterable, Mapping
 
 RESULT_SCHEMA_VERSION = 1
 MAX_EVIDENCE_BYTES = 256 * 1024
+MAX_STRUCTURED_TEXT_BYTES = 16 * 1024
+MAX_EVENT_EVIDENCE_BYTES = 128 * 1024
+MAX_CLAIM_EVIDENCE_BYTES = 64 * 1024
+MAX_MCP_RESULT_BYTES = 512 * 1024
 
 _OUTCOMES = frozenset(
     (
@@ -63,7 +67,10 @@ def parse_native_output(
     adapter: str | None = None,
 ) -> NativeReport:
     """Parse JSON/JSONL output and classify only typed native evidence."""
-    stdout_text = _safe_text(stdout)
+    # Native JSON is authoritative for classification. Decode only for
+    # parsing here; redaction and evidence bounds apply after the event has
+    # been successfully interpreted.
+    stdout_text = _native_text(stdout)
     if not stdout_text.strip():
         return NativeReport("empty_output", False, (), (), None, None)
 
@@ -133,7 +140,25 @@ def build_result(
             "stderr": "",
         }
     )
-    return {
+    safe_claims = _bounded_items(
+        native.claims,
+        MAX_CLAIM_EVIDENCE_BYTES,
+        _safe_claim,
+        lambda omitted: {
+            "kind": "worker_claim",
+            "text": f"[TRUNCATED: {omitted} additional claims omitted]",
+        },
+    )
+    safe_events = _bounded_items(
+        native.events,
+        MAX_EVENT_EVIDENCE_BYTES,
+        _safe_event,
+        lambda omitted: {
+            "harness_relay_truncated": True,
+            "omitted_events": omitted,
+        },
+    )
+    result = {
         "result_schema_version": RESULT_SCHEMA_VERSION,
         "run": {
             "id": run_id,
@@ -144,8 +169,12 @@ def build_result(
         "native": {
             "outcome": native.outcome,
             "structured": native.structured,
-            "summary": native.summary,
-            "claims": list(native.claims),
+            "summary": (
+                _safe_structured_text(native.summary)
+                if native.summary is not None
+                else None
+            ),
+            "claims": safe_claims,
         },
         "invocation": dict(invocation),
         "validation": validation_value,
@@ -167,10 +196,15 @@ def build_result(
         "evidence": {
             "stdout": _safe_text(stdout),
             "stderr": _safe_text(stderr),
-            "events": list(native.events),
-            "parse_error": native.parse_error,
+            "events": safe_events,
+            "parse_error": (
+                _safe_structured_text(native.parse_error)
+                if native.parse_error is not None
+                else None
+            ),
         },
     }
+    return _fit_mcp_result(result)
 
 
 def validate_result(value: Mapping[str, Any]) -> None:
@@ -324,11 +358,162 @@ def _safe_text(value: str | bytes) -> str:
     return _bounded(_redact(text))
 
 
-def _bounded(value: str) -> str:
-    encoded = value.encode("utf-8", "replace")
-    if len(encoded) <= MAX_EVIDENCE_BYTES:
+def _native_text(value: str | bytes) -> str:
+    """Decode worker output without changing bytes that affect JSON parsing."""
+    if isinstance(value, bytes):
+        return value.decode("utf-8", "replace")
+    if isinstance(value, str):
         return value
-    return encoded[:MAX_EVIDENCE_BYTES].decode("utf-8", "replace") + "\n[TRUNCATED]"
+    return str(value)
+
+
+def _safe_event(value: Any) -> Any:
+    """Sanitize retained event evidence while preserving its JSON shape."""
+    if isinstance(value, str):
+        return _safe_structured_text(value)
+    if isinstance(value, list):
+        return [_safe_event(item) for item in value]
+    if isinstance(value, dict):
+        return {
+            _safe_structured_text(str(key)): _safe_event(child)
+            for key, child in value.items()
+        }
+    return value
+
+
+def _safe_claim(value: Mapping[str, str]) -> dict[str, str]:
+    return {
+        "kind": "worker_claim",
+        "text": _safe_structured_text(value["text"]),
+    }
+
+
+def _safe_structured_text(value: str) -> str:
+    return _bounded(_redact(value), MAX_STRUCTURED_TEXT_BYTES)
+
+
+def _bounded_items(
+    values: Iterable[Any],
+    budget: int,
+    sanitize: Any,
+    marker: Any,
+) -> list[Any]:
+    """Retain a JSON-size-bounded prefix with an explicit omission marker."""
+    source = list(values)
+    retained: list[Any] = []
+    for index, value in enumerate(source):
+        candidate = sanitize(value)
+        if _json_size([*retained, candidate]) <= budget:
+            retained.append(candidate)
+            continue
+        omitted = len(source) - index
+        truncated = marker(omitted)
+        while retained and _json_size([*retained, truncated]) > budget:
+            retained.pop()
+            omitted += 1
+            truncated = marker(omitted)
+        if _json_size([*retained, truncated]) <= budget:
+            retained.append(truncated)
+        break
+    return retained
+
+
+def _json_size(value: Any) -> int:
+    return len(
+        json.dumps(value, ensure_ascii=False, separators=(",", ":")).encode(
+            "utf-8", "replace"
+        )
+    )
+
+
+def _mcp_text_size(value: Any) -> int:
+    """Measure a value after JSON text content and protocol string escaping."""
+    content = json.dumps(
+        value, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+    )
+    return len(json.dumps(content, ensure_ascii=False).encode("utf-8", "replace"))
+
+
+def _fit_mcp_result(result: dict[str, Any]) -> dict[str, Any]:
+    """Keep a normalized result usable when embedded in one MCP text response."""
+    if _mcp_text_size(result) <= MAX_MCP_RESULT_BYTES:
+        return result
+
+    marker = "[TRUNCATED: aggregate result exceeded MCP response budget]"
+    for container, key in (
+        (result["evidence"], "stdout"),
+        (result["evidence"], "stderr"),
+        (result["validation"], "stdout"),
+        (result["validation"], "stderr"),
+    ):
+        if container[key]:
+            container[key] = _bounded(str(container[key]), MAX_STRUCTURED_TEXT_BYTES)
+    result["native"]["summary"] = (
+        _bounded(str(result["native"]["summary"]), MAX_STRUCTURED_TEXT_BYTES)
+        if result["native"]["summary"] is not None
+        else None
+    )
+    if _mcp_text_size(result) <= MAX_MCP_RESULT_BYTES:
+        return result
+
+    result["native"]["claims"] = [{"kind": "worker_claim", "text": marker}]
+    result["native"]["summary"] = marker
+    result["evidence"]["events"] = [
+        {"harness_relay_truncated": True, "omitted_events": len(result["evidence"]["events"])}
+    ]
+    if _mcp_text_size(result) <= MAX_MCP_RESULT_BYTES:
+        return result
+
+    for snapshot_name in ("after_worker", "after_validation"):
+        snapshot = result["git"].get(snapshot_name)
+        if not isinstance(snapshot, dict):
+            continue
+        for name in (
+            "committed_delta",
+            "staged_changes",
+            "unstaged_changes",
+            "status",
+        ):
+            if snapshot.get(name):
+                snapshot[name] = [
+                    {"status": "TRUNCATED", "path": marker, "old_path": None}
+                ]
+        if snapshot.get("untracked_files"):
+            snapshot["untracked_files"] = [marker]
+    if result["git"].get("errors"):
+        result["git"]["errors"] = [marker]
+    if result["acceptance"].get("evidence"):
+        result["acceptance"]["evidence"] = [marker]
+    result["invocation"]["argv"] = [result["invocation"]["argv"][0], marker]
+    if result["validation"].get("argv"):
+        result["validation"]["argv"] = [result["validation"]["argv"][0], marker]
+    if _mcp_text_size(result) <= MAX_MCP_RESULT_BYTES:
+        return result
+
+    result["evidence"].update(
+        stdout=marker,
+        stderr=marker,
+        parse_error=(
+            marker if result["evidence"]["parse_error"] is not None else None
+        ),
+    )
+    result["validation"].update(stdout=marker, stderr=marker)
+    result["git"].update(after_worker=None, after_validation=None, errors=[marker])
+    if _mcp_text_size(result) > MAX_MCP_RESULT_BYTES:
+        raise ResultValidationError("normalized result exceeds MCP response budget")
+    return result
+
+
+def safe_evidence_text(value: str | bytes) -> str:
+    """Return bounded, redacted text suitable for persisted public evidence."""
+    return _safe_text(value)
+
+
+def _bounded(value: str, limit: int = MAX_EVIDENCE_BYTES) -> str:
+    encoded = value.encode("utf-8", "replace")
+    if len(encoded) <= limit:
+        return value
+    return encoded[:limit].decode("utf-8", "replace") + "\n[TRUNCATED]"
 
 
 def _redact(value: str) -> str:
@@ -358,5 +543,6 @@ __all__ = [
     "parse_native_output",
     "build_result",
     "packaged_result_schema",
+    "safe_evidence_text",
     "validate_result",
 ]

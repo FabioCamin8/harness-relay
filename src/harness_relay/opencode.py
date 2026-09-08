@@ -48,6 +48,19 @@ class ScopeSelection:
     inline_content: str | None = None
 
 
+def configured_mcp_entry(relay_config: str | Path | None = None) -> dict[str, object]:
+    """Return the owned MCP entry, optionally pinned to one relay config."""
+    entry = {**MCP_ENTRY, "command": list(MCP_ENTRY["command"])}
+    if relay_config is not None:
+        config_path = Path(relay_config).expanduser().resolve()
+        entry["command"] = [
+            *entry["command"],
+            "--config",
+            str(config_path),
+        ]
+    return entry
+
+
 def select_scope(
     scope: str,
     user_paths: UserPaths,
@@ -121,9 +134,13 @@ def inspect_config(path: Path) -> tuple[str, object]:
 
 
 def check_higher_precedence_conflicts(
-    selection: ScopeSelection, instruction_path: str
+    selection: ScopeSelection,
+    instruction_path: str,
+    *,
+    mcp_entry: Mapping[str, object] | None = None,
 ) -> None:
     """Reject effective-config conflicts instead of hiding them by overwrite."""
+    expected = canonical(mcp_entry if mcp_entry is not None else MCP_ENTRY)
     for path in selection.higher_precedence:
         if not path.exists():
             continue
@@ -132,7 +149,7 @@ def check_higher_precedence_conflicts(
                 f"OpenCode higher-precedence config is not a regular file: {path}"
             )
         _, root = inspect_config(path)
-        _check_layer_conflicts(root, str(path), instruction_path)
+        _check_layer_conflicts(root, str(path), instruction_path, expected)
     if selection.inline_content is not None:
         try:
             root = parse(selection.inline_content)
@@ -141,12 +158,13 @@ def check_higher_precedence_conflicts(
                 "OPENCODE_CONFIG_CONTENT is set but cannot be inspected: "
                 f"{exc}"
             ) from exc
-        _check_layer_conflicts(root, "OPENCODE_CONFIG_CONTENT", instruction_path)
+        _check_layer_conflicts(root, "OPENCODE_CONFIG_CONTENT", instruction_path, expected)
 
 
-def _check_layer_conflicts(root: object, source: str, instruction_path: str) -> None:
+def _check_layer_conflicts(
+    root: object, source: str, instruction_path: str, expected_mcp: str
+) -> None:
     """Check one higher-precedence layer without mutating it."""
-    expected = canonical(MCP_ENTRY)
     if not isinstance(root, dict):
         raise OpenCodeConfigError(f"OpenCode config root must be an object: {source}")
     mcp = root.get("mcp", MISSING)
@@ -156,7 +174,7 @@ def _check_layer_conflicts(root: object, source: str, instruction_path: str) -> 
                 f"OpenCode config {source} has non-object 'mcp'; cannot determine conflict"
             )
         relay = mcp.get(MCP_NAME, MISSING)
-        if relay is not MISSING and canonical(relay) != expected:
+        if relay is not MISSING and canonical(relay) != expected_mcp:
             raise OpenCodeConfigError(
                 f"OpenCode scope conflict: higher-precedence config {source} defines "
                 f"mcp.{MCP_NAME} differently"
@@ -175,7 +193,11 @@ def _check_layer_conflicts(root: object, source: str, instruction_path: str) -> 
 
 
 def integrate(
-    text: str, instruction_path: str, *, allow_legacy_upgrade: bool = False
+    text: str,
+    instruction_path: str,
+    *,
+    allow_legacy_upgrade: bool = False,
+    mcp_entry: Mapping[str, object] | None = None,
 ) -> tuple[str, bool, bool]:
     """Add the namespaced MCP entry and instruction path, preserving source text.
 
@@ -188,6 +210,7 @@ def integrate(
     if not isinstance(root, dict):
         raise OpenCodeConfigError("OpenCode config root must be an object")
 
+    desired_mcp = dict(mcp_entry if mcp_entry is not None else MCP_ENTRY)
     mcp_created = False
     mcp = root.get("mcp", MISSING)
     if mcp is MISSING:
@@ -199,12 +222,15 @@ def integrate(
         raise OpenCodeConfigError("OpenCode config key 'mcp' must be an object")
     relay = mcp.get(MCP_NAME, MISSING)
     if relay is MISSING:
-        text = edit(text, ["mcp", MCP_NAME], MCP_ENTRY)
+        text = edit(text, ["mcp", MCP_NAME], desired_mcp)
         mcp_created = True
-    elif allow_legacy_upgrade and canonical(relay) == canonical(LEGACY_MCP_ENTRY):
-        text = edit(text, ["mcp", MCP_NAME], MCP_ENTRY)
+    elif allow_legacy_upgrade:
+        # The caller grants this only after the current fragment matches the
+        # recorded ownership hash, so any previously generated command can be
+        # updated without treating user-edited values as owned.
+        text = edit(text, ["mcp", MCP_NAME], desired_mcp)
         mcp_created = True
-    elif canonical(relay) != canonical(MCP_ENTRY):
+    elif canonical(relay) != canonical(desired_mcp):
         raise OpenCodeConfigError(
             f"OpenCode config conflict: mcp.{MCP_NAME} already has a different value"
         )

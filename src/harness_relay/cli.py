@@ -6,6 +6,7 @@ import argparse
 import json
 from pathlib import Path
 import sys
+import uuid
 from typing import Sequence
 
 from . import __version__
@@ -24,6 +25,7 @@ from .mcp import serve_stdio
 from .results import ResultValidationError
 from .setup import SetupError, SetupOptions, run_setup
 from .uninstall import UninstallOptions, run_uninstall
+from .workspace import reserve_worktree
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -110,7 +112,21 @@ def build_parser() -> argparse.ArgumentParser:
     delegate.add_argument("--relay-config", "--config", dest="relay_config", type=Path)
     delegate.add_argument("--worker", required=True, choices=SUPPORTED_ADAPTERS)
     delegate.add_argument("--prompt", required=True, help="task text passed to the native worker")
-    delegate.add_argument("--cwd", type=Path, default=Path.cwd())
+    delegate.add_argument(
+        "--repository",
+        type=Path,
+        required=True,
+        help="source Git repository; delegation always runs in a managed worktree",
+    )
+    delegate.add_argument(
+        "--base-sha",
+        required=True,
+        help="exact committed base revision for the managed worktree",
+    )
+    delegate.add_argument(
+        "--run-id",
+        help="optional retained worktree identifier (generated when omitted)",
+    )
     delegate.add_argument("--model")
     delegate.add_argument("--effort")
     delegate.add_argument(
@@ -248,16 +264,26 @@ def _run_delegate(args: argparse.Namespace) -> int:
             f"worker {args.worker!r} is disabled; enable it in the relay config before delegation"
         )
     worker = discover_worker(worker_config)
+    roots = user_paths.with_config_paths(config)
+    run_id = args.run_id or uuid.uuid4().hex
+    reservation = reserve_worktree(
+        roots["worktrees"],
+        args.repository.expanduser().resolve(),
+        args.base_sha,
+        run_id,
+    )
     result = run_task(
         worker,
         TaskRequest(
             prompt=args.prompt,
-            cwd=args.cwd.expanduser().resolve(),
+            cwd=reservation.worktree,
             model=args.model,
             effort=args.effort,
             sandbox=args.sandbox,
             timeout=args.timeout,
         ),
+        base_sha=reservation.base_sha,
+        run_id=run_id,
     )
     print(json.dumps(result, ensure_ascii=False, sort_keys=True))
     return 0 if result["process"]["classification"] == "completed" and result["native"]["outcome"] == "success" else 1

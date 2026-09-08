@@ -22,7 +22,8 @@ from harness_relay.adapters import (
 )
 from harness_relay.execution import ValidationRequest, run_task
 from harness_relay.git_evidence import GitEvidenceError, capture_base, capture_snapshot
-from harness_relay.results import RESULT_SCHEMA_VERSION, validate_result
+from harness_relay.mcp import MAX_MESSAGE, McpServer
+from harness_relay.results import MAX_EVIDENCE_BYTES, RESULT_SCHEMA_VERSION, validate_result
 
 
 class Pr3Test(unittest.TestCase):
@@ -45,6 +46,7 @@ class Pr3Test(unittest.TestCase):
                     self.assertEqual(invocation.cwd, cwd)
                     self.assertIn(prompt, invocation.argv)
                     self.assertEqual(invocation.argv[-1], prompt)
+                    self.assertEqual(invocation.argv[-2], "--")
                     self.assertNotIn("shell=True", invocation.argv)
                     self.assertIn("--output-format", invocation.argv) if name != "codex" else self.assertIn("--json", invocation.argv)
 
@@ -66,7 +68,7 @@ class Pr3Test(unittest.TestCase):
         )
         self.assertEqual(
             codex.argv,
-            ("/bin/codex", "exec", "--json", "--cd", "/tmp", "x"),
+            ("/bin/codex", "exec", "--json", "--cd", "/tmp", "--", "x"),
         )
         claude = build_invocation(
             DetectedWorker("claude", Path("/bin/claude"), "2.1.104", "test"),
@@ -74,7 +76,7 @@ class Pr3Test(unittest.TestCase):
         )
         self.assertEqual(
             claude.argv,
-            ("/bin/claude", "-p", "--output-format", "stream-json", "--model", "sonnet", "--effort", "high", "x"),
+            ("/bin/claude", "-p", "--output-format", "stream-json", "--model", "sonnet", "--effort", "high", "--", "x"),
         )
         self.assertNotIn("--bare", claude.argv)
         self.assertNotIn("--strict-mcp-config", claude.argv)
@@ -88,6 +90,19 @@ class Pr3Test(unittest.TestCase):
                 DetectedWorker("claude", Path("/bin/claude"), "2.1.104", "test"),
                 TaskRequest(prompt="x", cwd=Path("/tmp"), sandbox="workspace-write"),
             )
+
+    def test_leading_help_prompt_is_data_after_native_option_terminator(self) -> None:
+        for name, version in (
+            ("codex", "0.153.4"),
+            ("claude", "2.1.104"),
+            ("agy", "1.1.27"),
+        ):
+            with self.subTest(name=name):
+                invocation = build_invocation(
+                    DetectedWorker(name, Path(f"/bin/{name}"), version, "test"),
+                    TaskRequest(prompt="--help", cwd=Path("/tmp")),
+                )
+                self.assertEqual(invocation.argv[-2:], ("--", "--help"))
 
     def test_structured_output_classification_separates_process_and_native_outcome(self) -> None:
         cases = (
@@ -126,6 +141,103 @@ class Pr3Test(unittest.TestCase):
                     self.assertEqual(result["process"]["completed"], True)
                     self.assertEqual(result["result_schema_version"], RESULT_SCHEMA_VERSION)
                     validate_result(result)
+
+    def test_native_classification_parses_intact_token_like_and_large_terminal_events(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            token_like = "token=valid-native-value"
+            payload = json.dumps(
+                {
+                    "type": "result",
+                    "subtype": "success",
+                    "result": token_like,
+                    "text": "worker output " + ("x" * (MAX_EVIDENCE_BYTES + 1024)),
+                }
+            )
+            fake = self._fake_worker(root, payload)
+            result = run_task(
+                DetectedWorker("claude", fake, "2.1.104", "test"),
+                TaskRequest(prompt="ignored", cwd=root, timeout=2),
+            )
+            self.assertEqual(result["native"]["outcome"], "success")
+            self.assertTrue(result["native"]["structured"])
+            self.assertIn("[TRUNCATED]", result["native"]["claims"][1]["text"])
+            self.assertNotIn(token_like, result["evidence"]["stdout"])
+            self.assertIn("[TRUNCATED]", result["evidence"]["events"][0]["text"])
+            validate_result(result)
+
+    def test_structured_evidence_has_aggregate_budget_and_fits_mcp_response(self) -> None:
+        for label, content, validation in (
+            ("ascii", "x", None),
+            ("unicode", "é", None),
+            ("quotes", '"\\', None),
+            (
+                "worker-and-validation",
+                '"\\',
+                ValidationRequest(
+                    (
+                        sys.executable,
+                        "-c",
+                        "import sys; sys.stdout.write(chr(34)*240000); "
+                        "sys.stderr.write(chr(92)*240000)",
+                    ),
+                    Path("/tmp"),
+                ),
+            ),
+        ):
+            with self.subTest(label=label), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                large = content * (240 * 1024)
+                payload = "\n".join(
+                    json.dumps(
+                        {"type": "turn.completed", "text": large, "summary": large},
+                        ensure_ascii=False,
+                    )
+                    for _ in range(5)
+                )
+                fake = self._fake_worker(root, payload)
+                requested_validation = validation
+                if validation is not None:
+                    requested_validation = ValidationRequest(
+                        validation.argv, root, validation.timeout
+                    )
+                result = run_task(
+                    DetectedWorker("codex", fake, "0.153.4", "test"),
+                    TaskRequest(prompt="ignored", cwd=root, timeout=2),
+                    validation=requested_validation,
+                )
+                self.assertEqual(result["native"]["outcome"], "success")
+                self.assertIn("[TRUNCATED", json.dumps(result["native"]))
+                self.assertIn(
+                    "TRUNCATED", json.dumps(result["evidence"]["events"])
+                )
+                response = McpServer._success(
+                    1, {"run_id": "bounded", "state": "completed", "result": result}
+                )
+                line = json.dumps(
+                    response, ensure_ascii=False, separators=(",", ":")
+                )
+                self.assertLessEqual(len(line.encode()), MAX_MESSAGE)
+                self.assertNotIn('"code":-32603', line)
+                validate_result(result)
+
+    def test_malformed_line_diagnostics_fit_mcp_response(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            fake = self._fake_worker(root, "x\n" * 40000)
+            result = run_task(
+                DetectedWorker("codex", fake, "0.153.4", "test"),
+                TaskRequest(prompt="ignored", cwd=root, timeout=2),
+            )
+            self.assertEqual(result["native"]["outcome"], "malformed_output")
+            self.assertIn("[TRUNCATED]", result["evidence"]["parse_error"])
+            response = McpServer._success(
+                1, {"run_id": "malformed", "state": "completed", "result": result}
+            )
+            line = json.dumps(response, ensure_ascii=False, separators=(",", ":"))
+            self.assertLessEqual(len(line.encode()), MAX_MESSAGE)
+            self.assertNotIn('"code":-32603', line)
+            validate_result(result)
 
     def test_adapter_specific_nested_events_and_stderr_are_classified(self) -> None:
         fixtures = (
@@ -349,7 +461,39 @@ class Pr3Test(unittest.TestCase):
 
     @staticmethod
     def _git(cwd: Path, *args: str) -> None:
-        subprocess.run(("git", *args), cwd=cwd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        identity: tuple[str, ...] = ()
+        name = subprocess.run(
+            ("git", "config", "--get", "user.name"),
+            cwd=cwd,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+        ).stdout.strip()
+        email = subprocess.run(
+            ("git", "config", "--get", "user.email"),
+            cwd=cwd,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+        ).stdout.strip()
+        if not name or not email:
+            identity = (
+                "-c", "user.name=HarnessRelay Fixture",
+                "-c", "user.email=fixture@example.invalid",
+            )
+        subprocess.run(
+            (
+                "git",
+                *identity,
+                "-c",
+                "commit.gpgsign=false",
+                *args,
+            ),
+            cwd=cwd,
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
 
     @staticmethod
     def _fake_worker(
@@ -358,6 +502,7 @@ class Pr3Test(unittest.TestCase):
         worker = root / "fake-worker.py"
         worker.write_text(
             f"#!{sys.executable}\n"
+            "# -*- coding: utf-8 -*-\n"
             "import os, sys, time\n"
             f"time.sleep({sleep!r})\n"
             f"sys.stdout.write({output!r})\n"

@@ -121,14 +121,17 @@ def build_invocation(worker: DetectedWorker, task: TaskRequest) -> Invocation:
             args.extend(("--sandbox", task.sandbox))
         if task.model is not None:
             args.extend(("--model", task.model))
-        args.extend(("--cd", str(task.cwd), task.prompt))
+        args.extend(("--cd", str(task.cwd), "--", task.prompt))
     else:
         args = [executable, "-p", "--output-format", adapter.output_format]
         if task.model is not None:
             args.extend(("--model", task.model))
         if task.effort is not None:
             args.extend(("--effort", task.effort))
-        args.append(task.prompt)
+        # All pinned native CLIs support ``--`` as the option terminator for
+        # their positional print prompt. This keeps a prompt such as
+        # ``--help`` data rather than turning it into a CLI request.
+        args.extend(("--", task.prompt))
     return Invocation(tuple(args), task.cwd)
 
 

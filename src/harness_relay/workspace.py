@@ -34,6 +34,21 @@ def _git(repo: Path, *args: str) -> str:
     return completed.stdout.strip()
 
 
+def _git_bytes(repo: Path, *args: str) -> bytes:
+    """Run Git without text decoding so NUL-delimited paths stay lossless."""
+    completed = subprocess.run(
+        ("git", "-C", str(repo), *args),
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=False,
+    )
+    if completed.returncode:
+        error = completed.stderr.decode("utf-8", "replace").strip()
+        raise WorkspaceError(error or "git command failed")
+    return completed.stdout
+
+
 def repository_identity(repo: Path) -> str:
     """Return a collision-resistant identity for the actual Git common directory."""
     root = Path(_git(repo, "rev-parse", "--show-toplevel")).resolve()
@@ -49,13 +64,26 @@ def capture_integrity(repo: Path) -> dict[str, Any]:
     """Capture revision and content evidence, including pre-existing dirty files."""
     root = Path(_git(repo, "rev-parse", "--show-toplevel")).resolve()
     head = _git(root, "rev-parse", "HEAD")
-    files = _git(root, "ls-files", "--cached", "--others", "--exclude-standard")
+    files: set[bytes] = {
+        path
+        for path in _git_bytes(
+            root, "ls-files", "--cached", "--others", "--exclude-standard", "-z"
+        ).split(b"\0")
+        if path
+    }
+    files.update(
+        path
+        for path in _git_bytes(
+            root, "ls-files", "--others", "--ignored", "--exclude-standard", "-z"
+        ).split(b"\0")
+        if path
+    )
     digest = hashlib.sha256()
     paths: list[str] = []
-    for relative in sorted(filter(None, files.splitlines())):
-        path = root / relative
-        paths.append(relative)
-        digest.update(relative.encode("utf-8", "surrogateescape") + b"\0")
+    for relative in sorted(files):
+        path = root / os.fsdecode(relative)
+        paths.append(os.fsdecode(relative))
+        digest.update(relative + b"\0")
         if path.is_symlink():
             digest.update(b"L" + os.readlink(path).encode("utf-8", "surrogateescape"))
         elif path.is_file():
@@ -87,11 +115,10 @@ def reserve_worktree(root: Path, source: Path, base_sha: str, run_id: str) -> Re
     source = source.expanduser().resolve()
     base = _git(source, "rev-parse", "--verify", f"{base_sha}^{{commit}}")
     repository_id = repository_identity(source)
-    requested_root = root.expanduser()
-    if requested_root.is_symlink():
-        raise WorkspaceError("managed worktree root must not be a symlink")
-    managed = requested_root.resolve()
+    managed = _managed_root(root)
     managed.mkdir(parents=True, exist_ok=True)
+    if managed.resolve() != managed:
+        raise WorkspaceError("managed worktree root must not contain symlinks")
     repo_root = managed / repository_id
     if repo_root.is_symlink():
         raise WorkspaceError("managed repository directory must not be a symlink")
@@ -125,8 +152,21 @@ def cleanup_worktree(reservation: Reservation) -> None:
     unmerged = _git(reservation.worktree, "diff", "--name-only", "--diff-filter=U")
     if porcelain or unmerged:
         raise WorkspaceError("refusing to remove dirty or unmerged worktree")
+    head = _git(reservation.worktree, "rev-parse", "HEAD")
+    if head != reservation.base_sha:
+        raise WorkspaceError("refusing to remove worktree containing committed work")
     _git(reservation.source, "worktree", "remove", str(reservation.worktree))
     _atomic_json(reservation.record, {"run_id": reservation.run_id, "repository_id": reservation.repository_id, "source": str(reservation.source), "worktree": str(reservation.worktree), "base_sha": reservation.base_sha, "state": "cleaned"})
+
+
+def _managed_root(root: Path) -> Path:
+    candidate = Path(os.path.abspath(root.expanduser()))
+    current = Path(candidate.anchor)
+    for part in candidate.parts[1:]:
+        current /= part
+        if current.is_symlink():
+            raise WorkspaceError("managed worktree root must not contain symlinks")
+    return candidate
 
 
 def _atomic_json(path: Path, value: dict[str, Any]) -> None:

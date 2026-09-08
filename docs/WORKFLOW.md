@@ -67,6 +67,6 @@ Require minimal, reproducible evidence. G01-G14 in docs/ACCEPTANCE.md define the
 
 No screenshots, logs, cookies, auth state, account details, private host addresses, or source-history leakage in public PRs. Publish concise sanitized evidence instead. If a public-data leak is discovered, stop further publication and report it; do not assume deleting the latest file erases prior exposure.
 
-## First assignment
+## Current assignment state
 
-Sol should reconcile the plan and live repository, assign one Luna XHigh writer, and review the resulting evidence. For this assignment, PR-2 is the active package and the work stops after its PR handoff; later packages are not started here. In an assignment without that stop condition, continue the planned progression after PASS. Astra Medium is available only for difficult blockers or high-risk decisions. Luna implements the bounded packet without nested agents or phase expansion.
+PR-2 through PR-5 are implemented as linked stacked PRs. Package code candidate `04c5d43` has exact-SHA source, installed-artifact, hosted-CI, and independent review evidence; any later code change requires focused regression and delta review. Maintainer authority is still required for review, merge, tag, publication, deployment, or migration.

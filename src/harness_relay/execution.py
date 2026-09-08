@@ -14,7 +14,13 @@ from typing import Any, Mapping, Sequence
 
 from .adapters import DetectedWorker, TaskRequest, build_invocation
 from .git_evidence import GitEvidenceError, capture_base, capture_snapshot
-from .results import NativeReport, build_result, parse_native_output, validate_result
+from .results import (
+    NativeReport,
+    build_result,
+    parse_native_output,
+    safe_evidence_text,
+    validate_result,
+)
 
 
 REENTRY_ENV = "HARNESS_RELAY_ACTIVE"
@@ -101,8 +107,8 @@ def run_task(
             "outcome": validation_outcome,
             "process": validation_process,
             "argv": list(validation.argv),
-            "stdout": _evidence_text(validation_stdout),
-            "stderr": _evidence_text(validation_stderr),
+            "stdout": safe_evidence_text(validation_stdout),
+            "stderr": safe_evidence_text(validation_stderr),
         }
         after_validation = _git_after(task.cwd, git_context)
 
@@ -201,13 +207,13 @@ def _run_process(
         if cancel_event is not None and cancel_event.is_set():
             canceled = True
             _stop_process(process)
-            stdout, stderr = process.communicate()
+            stdout, stderr = _drain_process(process)
             break
         remaining = deadline - time.monotonic()
         if remaining <= 0:
             timed_out = True
             _stop_process(process)
-            stdout, stderr = process.communicate()
+            stdout, stderr = _drain_process(process)
             break
         try:
             stdout, stderr = process.communicate(timeout=min(remaining, 0.1))
@@ -241,19 +247,66 @@ def _run_process(
 
 
 def _stop_process(process: subprocess.Popen[bytes]) -> None:
-    if process.poll() is not None:
-        return
+    # The process leader may have exited while a descendant still owns one of
+    # the captured pipe descriptors. ``poll()`` only describes the leader;
+    # the process group remains the ownership boundary for cancellation.
+    process_group = process.pid
     try:
-        os.killpg(process.pid, signal.SIGTERM)
-        process.wait(timeout=0.5)
+        os.killpg(process_group, signal.SIGTERM)
     except ProcessLookupError:
         return
+
+    deadline = time.monotonic() + 0.5
+    while _process_group_exists(process_group) and time.monotonic() < deadline:
+        try:
+            process.wait(timeout=min(0.05, max(0.0, deadline - time.monotonic())))
+        except subprocess.TimeoutExpired:
+            pass
+        if process.poll() is not None:
+            time.sleep(min(0.01, max(0.0, deadline - time.monotonic())))
+
+    if _process_group_exists(process_group):
+        try:
+            os.killpg(process_group, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+    try:
+        process.wait(timeout=0.5)
     except subprocess.TimeoutExpired:
+        pass
+
+
+def _process_group_exists(process_group: int) -> bool:
+    try:
+        os.killpg(process_group, 0)
+    except ProcessLookupError:
+        return False
+    return True
+
+
+def _drain_process(process: subprocess.Popen[bytes]) -> tuple[bytes, bytes]:
+    """Drain captured pipes after group termination without an unbounded wait."""
+    try:
+        return process.communicate(timeout=1.0)
+    except subprocess.TimeoutExpired as first:
+        # A descendant can race with the first group signal. Reassert the
+        # ownership boundary before the bounded final drain.
         try:
             os.killpg(process.pid, signal.SIGKILL)
-            process.wait(timeout=0.5)
         except ProcessLookupError:
-            return
+            pass
+        try:
+            return process.communicate(timeout=1.0)
+        except subprocess.TimeoutExpired as second:
+            stdout = second.output if second.output is not None else first.output
+            stderr = second.stderr if second.stderr is not None else first.stderr
+            # Closing our descriptors is the final bounded-drain safeguard for
+            # an escaped descendant. The leader has already been waited on.
+            if process.stdout is not None:
+                process.stdout.close()
+            if process.stderr is not None:
+                process.stderr.close()
+            return stdout or b"", stderr or b""
 
 
 def _validation_outcome(process: Mapping[str, Any]) -> str:
@@ -282,10 +335,6 @@ def _with_outcome(report: NativeReport, outcome: str) -> NativeReport:
 
 def _error_bytes(exc: BaseException) -> bytes:
     return f"{type(exc).__name__}: {exc}".encode("utf-8", "replace")
-
-
-def _evidence_text(value: bytes) -> str:
-    return value.decode("utf-8", "replace")
 
 
 def _git_before(cwd: Path, supplied_base: str | None) -> dict[str, Any]:
