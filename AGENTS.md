@@ -1,6 +1,6 @@
 # Agent contract
 
-Read README.md and PLAN.md first, then the relevant architecture, acceptance, compatibility, and workflow documents. This repository currently starts as documentation, not a shipped implementation. Verify the actual branch and files before relying on recorded status.
+Read README.md and PLAN.md first, then the relevant architecture, acceptance, compatibility, and workflow documents. This repository contains a stacked local-alpha implementation, not a published release. Verify the actual branch and files before relying on recorded status.
 
 ## Product invariants
 

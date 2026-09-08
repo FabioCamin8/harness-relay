@@ -1,6 +1,6 @@
 # Implementation plan
 
-Baseline: 2026-09-07. Status: PR-1 is merged. PR-2 through PR-5 are stacked. The cumulative code candidate is `cf7876ef6939487e058a329ab5c63698999cf646`; its 78-test source suite passes, while final delta review, installed-artifact evidence, maintainer review, hosted final-head CI, merge, tag, publication, and operational migration remain pending. Live G14 evidence remains tied to the earlier code candidate recorded in the acceptance ledger.
+Baseline: 2026-09-08. Status: PR-1 is merged and PR-2 through PR-5 are stacked. The cumulative package code candidate is `04c5d43e5912864a03c4f31d99d508a4acd80d00`: its 78-test source suite and exact installed-wheel suites on CPython 3.13.5 as UID 65534 and CPython 3.9.25 pass, public artifact scans pass, and six hosted exact-head checks pass. Independent review passed through a complete runtime review at `5796fff` and the fixture-only delta at `04c5d43`. Maintainer review, merge, tag, publication, and operational migration remain pending. Live G14 evidence remains tied to the earlier code candidate recorded in the acceptance ledger.
 
 ## Product contract
 
@@ -116,8 +116,8 @@ Update this table only with actual PR/commit evidence. PR bodies hold detailed t
 | PR-1 | Reviewed PASS | [#1](https://github.com/FabioCamin8/harness-relay/pull/1) |
 | PR-2 | Reviewed G03/G04 PASS at `8849e04`; evidence-only delta reviewed | [#2](https://github.com/FabioCamin8/harness-relay/pull/2) |
 | PR-3 | Reviewed G05-G08 PASS; maintainer review pending | [#3](https://github.com/FabioCamin8/harness-relay/pull/3) |
-| PR-4 | Final cumulative findings corrected at `cf7876e`; delta review pending | [#4](https://github.com/FabioCamin8/harness-relay/pull/4) |
-| PR-5 | 78/78 source tests pass at `cf7876e`; final evidence pending | [#5](https://github.com/FabioCamin8/harness-relay/pull/5) |
+| PR-4 | Cumulative G09-G13 review PASS through `04c5d43`; remediations follow the standalone PR-4 head in PR-5; maintainer review pending | [#4](https://github.com/FabioCamin8/harness-relay/pull/4), [#5](https://github.com/FabioCamin8/harness-relay/pull/5) |
+| PR-5 | Reviewed PASS at `04c5d43`; 78/78 source and both installed-wheel lanes plus hosted exact-head CI pass; maintainer review pending | [#5](https://github.com/FabioCamin8/harness-relay/pull/5) |
 
 ## Stop rules and deferred work
 

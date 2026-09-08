@@ -69,4 +69,4 @@ No screenshots, logs, cookies, auth state, account details, private host address
 
 ## Current assignment state
 
-PR-2 through PR-5 are implemented as linked stacked PRs. The cumulative candidate must retain exact-SHA Standards and Spec review plus installed-artifact evidence; any later code change requires focused regression and delta review. Maintainer authority is still required for merge, tag, publication, deployment, or migration.
+PR-2 through PR-5 are implemented as linked stacked PRs. Package code candidate `04c5d43` has exact-SHA source, installed-artifact, hosted-CI, and independent review evidence; any later code change requires focused regression and delta review. Maintainer authority is still required for review, merge, tag, publication, deployment, or migration.

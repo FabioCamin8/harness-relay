@@ -1,6 +1,6 @@
 # Compatibility and evidence
 
-Status at cumulative code candidate `cf7876e`, 2026-09-08: 78/78 source tests pass on Debian GNU/Linux 13. Exact installed-artifact evidence for this candidate is pending regeneration. The preceding `7afa87f` artifact passed on CPython 3.13.5 as UID 65534 and CPython 3.9.25 and supplied the recorded live OpenCode-to-Codex repository edit with independent validation. Final delta review, maintainer review, and hosted final-head CI remain pending.
+Status at cumulative package code candidate `04c5d43`, 2026-09-08: 78/78 source tests pass on Debian GNU/Linux 13, and its installed wheel passes 78/78 outside the checkout on CPython 3.13.5 as UID 65534 and CPython 3.9.25. Public artifact scans, archive validation, six hosted exact-head checks, and independent review pass. Maintainer review and merge remain pending. The earlier `7afa87f` artifact supplies the separately recorded live OpenCode-to-Codex repository edit with independent validation.
 
 ## Intended support
 
@@ -14,7 +14,7 @@ Status at cumulative code candidate `cf7876e`, 2026-09-08: 78/78 source tests pa
 | Other installed CLIs | Possible future native workers | Unsupported until a named adapter and tests exist; detection alone is insufficient. |
 | Remote desktop | Optional real GUI capability | Deferred, disabled by default; no specific product/host required by core. |
 | Apple tooling | Optional specialized capability | Deferred, disabled by default; no Mac required by core. |
-| Linux, non-root user on Debian GNU/Linux 13 | First required platform | Current source suite passes 78/78. The preceding exact wheel passed 67/67 as UID 65534 on CPython 3.13.5; current exact-wheel regeneration is pending. Live inference used the existing authorized maintainer account; no auth material was copied or permission-weakened. |
+| Linux, non-root user on Debian GNU/Linux 13 | First required platform | The exact `04c5d43` wheel passes 78/78 as UID 65534 on CPython 3.13.5 and 78/78 on CPython 3.9.25 outside the checkout without `PYTHONPATH`. Live inference used the existing authorized maintainer account with the earlier `7afa87f` artifact; no auth material was copied or permission-weakened. |
 | macOS / WSL / native Windows | Additional platforms | Unverified; do not claim support without platform-specific evidence. |
 
 OpenCode's chosen model must be capable of using the exposed tools for the intended task. Model independence does not promise equal reasoning quality or tool reliability across models. HarnessRelay does not rank them or select provider accounts.
