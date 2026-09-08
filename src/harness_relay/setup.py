@@ -12,12 +12,14 @@ from typing import Mapping
 
 from .configuration import (
     UserPaths,
+    config_document,
     config_with_overrides,
     default_config,
     dump_config,
     load_config,
 )
 from .discovery import DetectedWorker, discover_enabled
+from .jsonc import source_fragment
 from .opencode import (
     INSTRUCTION_TEXT,
     MCP_ENTRY,
@@ -90,9 +92,12 @@ def run_setup(
     user_paths = UserPaths.from_environment(environ, home)
     config_path = (options.relay_config or user_paths.config_file).expanduser().resolve()
     config_exists = config_path.is_file()
+    config_before = _optional_bytes(config_path)
     if config_exists:
-        config = load_config(config_path)
+        original_config = load_config(config_path)
+        config = original_config
     else:
+        original_config = default_config()
         config = default_config()
     config = config_with_overrides(
         config,
@@ -112,6 +117,7 @@ def run_setup(
         user_paths,
         explicit_path=options.opencode_config,
         project_dir=options.project_dir,
+        environ=environ,
     )
     instruction_path = _instruction_path(user_paths)
     try:
@@ -120,6 +126,9 @@ def run_setup(
         raise SetupError(str(exc)) from exc
 
     opencode_text, _ = inspect_config(selection.path)
+    opencode_before = (
+        opencode_text.encode("utf-8") if selection.path.is_file() else None
+    )
     try:
         new_opencode_text, mcp_created, instruction_created = integrate(
             opencode_text, str(instruction_path)
@@ -141,10 +150,12 @@ def run_setup(
                 old_record.setdefault(name, value)
 
     fragment_exists = instruction_path.exists()
+    instruction_before: bytes | None = None
     fragment_text = ""
     if fragment_exists:
         try:
             fragment_text = instruction_path.read_text(encoding="utf-8")
+            instruction_before = fragment_text.encode("utf-8")
         except OSError as exc:
             raise SetupError(
                 f"cannot read HarnessRelay instruction fragment {instruction_path}: {exc}"
@@ -157,14 +168,11 @@ def run_setup(
                 f"{instruction_path}; move it or choose another user config home"
             )
 
-    config_changed = (not config_exists) or any(
-        value is not None
-        for value in (
-            options.enabled,
-            options.roles,
-            options.executables,
-            options.paths,
-        )
+    # Supplying an explicit override that already describes the file is a true
+    # no-op; do not rewrite bytes or update mtime merely because an option was
+    # supplied.
+    config_changed = not config_exists or config_document(config) != config_document(
+        original_config
     )
     # The relay config is user-owned input.  It is written only when it was
     # generated or explicitly changed through setup overrides.
@@ -180,6 +188,11 @@ def run_setup(
         ),
         instruction_fragment_owned=bool(
             old_record.get("instruction_fragment_owned", False) or fragment_changed
+        ),
+        mcp_fragment_hash=(
+            _mcp_fragment_hash(new_opencode_text)
+            if mcp_created
+            else old_record.get("mcp_fragment_hash")
         ),
         fragment_hash=old_record.get("fragment_hash")
         or _sha256(INSTRUCTION_TEXT.encode("utf-8")),
@@ -219,11 +232,17 @@ def run_setup(
     # point of applying a real setup.  A failed replacement leaves the old
     # complete file in place and a later run can safely retry the plan.
     if config_changed:
-        atomic_write(config_path, dump_config(config).encode("utf-8"))
+        atomic_write_checked(
+            config_path, config_before, dump_config(config).encode("utf-8"), "setup"
+        )
     if fragment_changed:
-        atomic_write(instruction_path, INSTRUCTION_TEXT.encode("utf-8"))
+        atomic_write_checked(
+            instruction_path, instruction_before, INSTRUCTION_TEXT.encode("utf-8"), "setup"
+        )
     if plan.opencode_changed:
-        atomic_write(selection.path, new_opencode_text.encode("utf-8"))
+        atomic_write_checked(
+            selection.path, opencode_before, new_opencode_text.encode("utf-8"), "setup"
+        )
     if state_changed:
         atomic_write(
             user_paths.state_dir / "setup.json",
@@ -271,6 +290,18 @@ def atomic_write(path: Path, content: bytes) -> None:
         raise
 
 
+def atomic_write_checked(
+    path: Path, expected: bytes | None, content: bytes, operation: str
+) -> None:
+    """Replace a file only if its inspected bytes are still current."""
+    current = _optional_bytes(path)
+    if current != expected:
+        raise SetupError(
+            f"{operation} refused to replace {path}: file changed after inspection"
+        )
+    atomic_write(path, content)
+
+
 def state_path(user_paths: UserPaths) -> Path:
     """Return the user-local ownership record path."""
     return user_paths.state_dir / "setup.json"
@@ -293,6 +324,7 @@ def _state_with_record(
     mcp_owned: bool,
     instruction_entry_owned: bool,
     instruction_fragment_owned: bool,
+    mcp_fragment_hash: str | None,
     fragment_hash: str,
 ) -> dict:
     updated = {"version": STATE_VERSION, "integrations": dict(state.get("integrations", {}))}
@@ -302,6 +334,7 @@ def _state_with_record(
         "instruction_path": str(instruction_path),
         "mcp_name": "harness-relay",
         "mcp_value_hash": _sha256(_canonical_json(MCP_ENTRY).encode("utf-8")),
+        "mcp_fragment_hash": mcp_fragment_hash,
         "mcp_owned": mcp_owned,
         "instruction_entry_owned": instruction_entry_owned,
         "instruction_fragment_owned": instruction_fragment_owned,
@@ -360,13 +393,21 @@ def load_ownership(user_paths: UserPaths) -> dict:
     return _load_state(state_path(user_paths))
 
 
-def _read_text(path: Path) -> str:
+def _optional_bytes(path: Path) -> bytes | None:
+    """Read a file for compare-and-swap checks, treating absence as ``None``."""
     try:
-        return path.read_text(encoding="utf-8")
+        return path.read_bytes()
     except FileNotFoundError:
-        return ""
+        return None
     except OSError as exc:
         raise SetupError(f"cannot read {path}: {exc}") from exc
+
+
+def _mcp_fragment_hash(text: str) -> str:
+    fragment = source_fragment(text, ["mcp", "harness-relay"])
+    if fragment is None:
+        raise SetupError("cannot record ownership: integrated MCP fragment is missing")
+    return _sha256(fragment.encode("utf-8"))
 
 
 def _canonical_json(value: object) -> str:

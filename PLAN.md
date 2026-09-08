@@ -1,6 +1,6 @@
 # Implementation plan
 
-Baseline: 2026-09-07. Status: PR-1 is merged; PR-2 candidate is open for review with G03/G04 offline PASS evidence.
+Baseline: 2026-09-07. Status: PR-1 is merged; PR-2 is an unreviewed implementation candidate with local G03/G04 test evidence pending exact-SHA review.
 
 ## Product contract
 
@@ -49,6 +49,7 @@ Work:
 - Offer one setup flow: OpenCode integration scope, enabled workers, optional role preferences, and user-owned storage paths. Retain the existing OpenCode master model. No profile framework or mandatory worker model override.
 - Support `setup --dry-run`, interactive setup, and equivalent file-driven non-interactive setup. Keep our configuration in one versioned JSON format with strict types and actionable errors.
 - Manage only a namespaced MCP entry and a short, marked instruction block. Inspect effective configuration and respect JSON/JSONC, precedence, managed policy, and user changes.
+- The setup-created MCP entry remains disabled until PR-4 implements and verifies the MCP runtime. JSONC editing uses the pinned Python Tree-sitter parser pair and has no external runtime prerequisite.
 - Make writes atomic and reversible. Record ownership sufficient for a second setup to be a no-op. A conflict is a reported conflict, not permission to overwrite unrelated data.
 - Uninstall removes only unchanged managed integration fragments. Preserve later user edits, credentials, native harnesses, worktrees, and task artifacts. Never restore an entire old config over newer user changes.
 - Default to no enabled workers until the user selects them. Disabled components must not be probed or advertised as runnable.
@@ -113,7 +114,7 @@ Update this table only with actual PR/commit evidence. PR bodies hold detailed t
 | Package | State | PR / reviewed candidate |
 | --- | --- | --- |
 | PR-1 | Reviewed PASS | [#1](https://github.com/FabioCamin8/harness-relay/pull/1) |
-| PR-2 | Candidate; G03/G04 offline PASS | [#2](https://github.com/FabioCamin8/harness-relay/pull/2) |
+| PR-2 | Unreviewed candidate; local G03/G04 test evidence pending exact-SHA review | [#2](https://github.com/FabioCamin8/harness-relay/pull/2) |
 | PR-3 | Not started | — |
 | PR-4 | Not started | — |
 | PR-5 | Not started | — |

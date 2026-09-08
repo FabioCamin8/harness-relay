@@ -10,7 +10,12 @@ import shutil
 import subprocess
 from typing import Mapping
 
-from .configuration import ConfigurationError, RelayConfig, WorkerConfig
+from .configuration import (
+    ADAPTERS_BY_NAME,
+    ConfigurationError,
+    RelayConfig,
+    WorkerConfig,
+)
 
 
 class DiscoveryError(ConfigurationError):
@@ -18,21 +23,13 @@ class DiscoveryError(ConfigurationError):
 
 
 _VERSION = re.compile(r"(?<!\d)(\d+)\.(\d+)\.(\d+)(?:[-+][0-9A-Za-z.-]+)?")
-_VERSION_RANGES = {
-    # These are deliberately coarse major-version contracts for PR-2 setup;
-    # invocation flags and output contracts belong to the adapter work package.
-    "codex": {0},
-    "claude": {2},
-    "agy": {1},
-}
-
-
 @dataclass(frozen=True)
 class DetectedWorker:
     name: str
     executable: Path
     version: str
     source: str
+    version_status: str = "unverified"
 
 
 def discover_enabled(
@@ -79,12 +76,13 @@ def discover_worker(
                 f"enabled worker {worker.name!r} executable is not executable: {candidate}"
             )
     else:
-        names = {"codex": "codex", "claude": "claude", "agy": "agy"}
-        command = names.get(worker.name)
-        if command is None:
+        adapter = ADAPTERS_BY_NAME.get(worker.name)
+        if adapter is None:
             raise DiscoveryError(f"unknown adapter {worker.name!r}")
         search_environment = os.environ if environ is None else environ
-        candidate_name = shutil.which(command, path=search_environment.get("PATH"))
+        candidate_name = shutil.which(
+            adapter.executable, path=search_environment.get("PATH")
+        )
         if candidate_name is None:
             raise DiscoveryError(
                 f"enabled worker {worker.name!r} was not found on PATH; "
@@ -94,7 +92,7 @@ def discover_worker(
         source = "PATH"
 
     if not probe:
-        return DetectedWorker(worker.name, candidate, "unprobed", source)
+        return DetectedWorker(worker.name, candidate, "unprobed", source, "unprobed")
     try:
         completed = subprocess.run(
             [str(candidate), "--version"],
@@ -122,14 +120,8 @@ def discover_worker(
     match = _VERSION.search(completed.stdout or "")
     if match is None:
         raise DiscoveryError(
-            f"{worker.name!r} executable {candidate} did not report a supported "
-            "semantic version from --version"
+            f"{worker.name!r} executable {candidate} did not report a semantic "
+            "version from --version"
         )
     version = ".".join(match.groups())
-    if int(match.group(1)) not in _VERSION_RANGES[worker.name]:
-        expected = ", ".join(str(value) for value in sorted(_VERSION_RANGES[worker.name]))
-        raise DiscoveryError(
-            f"{worker.name!r} version {version} is unsupported; supported major "
-            f"version(s): {expected}"
-        )
-    return DetectedWorker(worker.name, candidate, version, source)
+    return DetectedWorker(worker.name, candidate, version, source, "detected-unverified")

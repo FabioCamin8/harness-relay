@@ -1,74 +1,214 @@
-"""Small JSONC reader and token-preserving edit helpers.
+"""Bounded, source-preserving JSONC operations for OpenCode configuration.
 
-OpenCode configuration is JSON with comments and trailing commas.  This
-module parses that grammar for conflict checks and edits only the requested
-object/array members.  It never serializes the complete user document, which
-keeps comments, ordering, and unrelated formatting intact.
+Tree-sitter supplies the structure, comments, and exact UTF-8 byte ranges.
+Its JSON grammar deliberately reports trailing commas as ``ERROR`` nodes, so
+this module recognizes only a comma after a complete direct member/value when
+the remainder before that container's close is whitespace/comments.  The
+recognized comma and comment ranges are masked in a validation copy and the
+result must then parse as strict JSON.  No generic error recovery is accepted.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 import json
-import re
-from typing import Any, Iterable
+import math
+from typing import Any, Iterable, Sequence
 
 
 class JsoncError(ValueError):
-    """Raised for malformed JSONC or an unsafe structural edit."""
+    """Raised for malformed JSONC or an unsafe source edit."""
 
 
-@dataclass(frozen=True)
-class Token:
-    kind: str
-    start: int
-    end: int
-    value: Any = None
+MISSING = object()
 
-
-@dataclass
-class Member:
-    key: str
-    key_start: int
-    key_end: int
-    value: "Node"
-    comma: Token | None = None
-
-
-@dataclass
-class Node:
-    kind: str
-    start: int
-    end: int
-    value: Any = None
-    members: list[Member] = field(default_factory=list)
-    items: list["Node"] = field(default_factory=list)
-
-
-_NUMBER = re.compile(
-    r"-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?"
+_VALUE_TYPES = frozenset(
+    ("object", "array", "string", "number", "true", "false", "null")
 )
 
 
-def parse(text: str) -> Node:
-    """Parse JSONC and return a syntax tree with source ranges."""
-    tokens = list(_tokens(text))
-    parser = _Parser(tokens, text)
-    root = parser.value()
-    if parser.peek() is not None:
-        token = parser.peek()
-        raise JsoncError(f"unexpected token at offset {token.start}")
-    return root
+@dataclass(frozen=True)
+class _Document:
+    source: bytes
+    tree: Any
+    root: Any
+    value: Any
+    trailing_commas: tuple[tuple[int, int, int, int], ...]
 
 
-def find_member(node: Node, key: str) -> Member | None:
-    """Find an object member without accepting duplicate-key ambiguity."""
-    if node.kind != "object":
-        raise JsoncError("expected an object")
-    for member in node.members:
-        if member.key == key:
-            return member
-    return None
+def _tree_sitter_parser() -> Any:
+    """Create a parser for the pinned JSON grammar."""
+    try:
+        from tree_sitter import Language, Parser
+        import tree_sitter_json
+    except ImportError as exc:  # pragma: no cover - packaging/environment path
+        raise JsoncError(
+            "JSONC setup requires the tree-sitter and tree-sitter-json "
+            "dependencies; install project dependencies before editing OpenCode config"
+        ) from exc
+    try:
+        return Parser(Language(tree_sitter_json.language()))
+    except Exception as exc:  # pragma: no cover - incompatible dependency pair
+        raise JsoncError(f"cannot initialize the JSONC parser: {exc}") from exc
+
+
+def _parse_tree(source: bytes) -> Any:
+    parser = _tree_sitter_parser()
+    try:
+        return parser.parse(source)
+    except Exception as exc:
+        raise JsoncError(f"cannot parse JSONC source: {exc}") from exc
+
+
+def _walk(node: Any) -> Iterable[Any]:
+    yield node
+    for child in node.children:
+        yield from _walk(child)
+
+
+def _is_value_node(node: Any) -> bool:
+    return node.type in _VALUE_TYPES and node.end_byte > node.start_byte
+
+
+def _direct_values(node: Any) -> list[Any]:
+    if node.type == "object":
+        return [child for child in node.named_children if child.type == "pair"]
+    if node.type == "array":
+        return [child for child in node.named_children if _is_value_node(child)]
+    return []
+
+
+def _skip_trivia(source: bytes, start: int, end: int) -> int | None:
+    """Return the first non-trivia byte, or ``None`` for malformed trivia."""
+    index = start
+    while index < end:
+        byte = source[index]
+        if byte in b" \t\r\n":
+            index += 1
+            continue
+        if source.startswith(b"//", index):
+            newline = source.find(b"\n", index + 2, end)
+            if newline < 0:
+                return end
+            index = newline + 1
+            continue
+        if source.startswith(b"/*", index):
+            close = source.find(b"*/", index + 2, end)
+            if close < 0:
+                return None
+            index = close + 2
+            continue
+        return index
+    return end
+
+
+def _trailing_comma(source: bytes, container: Any, value: Any) -> tuple[int, int] | None:
+    """Recognize one comma after a complete value before its close."""
+    close = container.end_byte - 1
+    after_value = _skip_trivia(source, value.end_byte, close)
+    if after_value is None or after_value >= close or source[after_value] != ord(","):
+        return None
+    after_comma = _skip_trivia(source, after_value + 1, close)
+    if after_comma != close:
+        return None
+    return after_value, after_value + 1
+
+
+def _mask_range(masked: bytearray, source: bytes, start: int, end: int) -> None:
+    """Mask a comment/range while preserving all line-ending bytes."""
+    if start < 0 or end < start or end > len(source):
+        raise JsoncError("parser returned an invalid source range")
+    for index in range(start, end):
+        if source[index] not in (ord("\r"), ord("\n")):
+            masked[index] = ord(" ")
+
+
+def _validation_source(
+    tree: Any, source: bytes
+) -> tuple[bytes, tuple[tuple[int, int, int, int], ...]]:
+    masked = bytearray(source)
+    trailing: list[tuple[int, int, int, int]] = []
+    errors: list[Any] = []
+    if source.startswith(b"\xef\xbb\xbf"):
+        _mask_range(masked, source, 0, 3)
+    for node in _walk(tree.root_node):
+        if node.type == "ERROR":
+            errors.append(node)
+        if node.type == "comment":
+            _mask_range(masked, source, node.start_byte, node.end_byte)
+        elif node.type in {"object", "array"}:
+            for value in _direct_values(node):
+                candidate = _trailing_comma(source, node, value)
+                if candidate is not None:
+                    trailing.append((node.start_byte, node.end_byte, *candidate))
+                    _mask_range(masked, source, *candidate)
+    for error in errors:
+        if not any(
+            error.start_byte == start and error.end_byte == end
+            for _, _, start, end in trailing
+        ):
+            raise JsoncError(
+                "unrecognized JSONC parser recovery at byte "
+                f"{error.start_byte}"
+            )
+    return bytes(masked), tuple(trailing)
+
+
+def _duplicate_check(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    result: dict[str, Any] = {}
+    for key, value in pairs:
+        if key in result:
+            raise JsoncError(f"duplicate object key {key!r}")
+        result[key] = value
+    return result
+
+
+def _reject_constant(value: str) -> Any:
+    raise JsoncError(f"non-JSON numeric constant {value!r}")
+
+
+def _strict_float(value: str) -> float:
+    result = float(value)
+    if not math.isfinite(result):
+        raise JsoncError(f"non-finite JSON number {value!r}")
+    return result
+
+
+def _validated(text: str) -> _Document:
+    if not isinstance(text, str):
+        raise JsoncError("JSONC source must be text")
+    source = text.encode("utf-8")
+    tree = _parse_tree(source)
+    masked, trailing = _validation_source(tree, source)
+    try:
+        validation_text = masked.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise JsoncError(f"JSONC source is not valid UTF-8: {exc}") from exc
+    try:
+        value = json.loads(
+            validation_text,
+            object_pairs_hook=_duplicate_check,
+            parse_constant=_reject_constant,
+            parse_float=_strict_float,
+        )
+    except JsoncError:
+        raise
+    except json.JSONDecodeError as exc:
+        raise JsoncError(
+            f"invalid JSONC at line {exc.lineno}, column {exc.colno}: {exc.msg}"
+        ) from exc
+    except (TypeError, ValueError) as exc:
+        raise JsoncError(f"invalid JSONC: {exc}") from exc
+    root = tree.root_node
+    root_value = root.named_children[0] if root.named_children else None
+    if root_value is None:
+        raise JsoncError("empty JSONC document")
+    return _Document(source, tree, root_value, value, trailing)
+
+
+def parse(text: str) -> Any:
+    """Parse valid JSONC into ordinary Python values after policy checks."""
+    return _validated(text).value
 
 
 def canonical(value: Any) -> str:
@@ -76,292 +216,308 @@ def canonical(value: Any) -> str:
     return json.dumps(value, sort_keys=True, separators=(",", ":"))
 
 
-def edit_insert_object_member(
-    text: str, node: Node, key: str, value: Any
-) -> list[tuple[int, int, str]]:
-    """Return an insertion edit for a missing object member."""
-    if node.kind != "object":
-        raise JsoncError("cannot insert an object member into a non-object")
-    serialized = json.dumps(value, sort_keys=True, separators=(",", ":"))
-    key_text = f"{json.dumps(key)}: {serialized}"
-    close = node.end - 1
-    if not node.members:
-        between = text[node.start + 1 : close]
-        if "\n" in between:
-            indent = _child_indent(text, node, None)
-            return [(close, close, f"{indent}{key_text}")]
-        return [(close, close, key_text)]
-
-    last = node.members[-1]
-    between = text[last.value.end : close]
-    indent = _member_indent(text, node.members[0].key_start)
-    if last.comma is None and between == "":
-        return [(close, close, ", " + key_text)]
-    edits: list[tuple[int, int, str]] = []
-    if last.comma is None:
-        edits.append((last.value.end, last.value.end, ","))
-    if "\n" in between:
-        # Existing whitespace supplies the newline before the new member.
-        prefix = "" if between.rstrip(" \t\r\n") == "" else f"\n{indent}"
-        if between and between[-1] not in " \t\r\n":
-            prefix = f"\n{indent}"
-        edits.append((close, close, prefix + key_text))
-    else:
-        edits.append((close, close, " " + key_text))
-    return edits
+def _json_text(value: Any) -> bytes:
+    try:
+        return json.dumps(
+            value,
+            ensure_ascii=False,
+            allow_nan=False,
+            separators=(", ", ": "),
+        ).encode("utf-8")
+    except (TypeError, ValueError) as exc:
+        raise JsoncError(f"cannot serialize JSON value: {exc}") from exc
 
 
-def edit_insert_array_item(
-    text: str, node: Node, value: Any
-) -> list[tuple[int, int, str]]:
-    """Return an insertion edit for a missing array item."""
-    if node.kind != "array":
-        raise JsoncError("cannot insert an array item into a non-array")
-    serialized = json.dumps(value, sort_keys=True, separators=(",", ":"))
-    close = node.end - 1
-    if not node.items:
-        between = text[node.start + 1 : close]
-        if "\n" in between:
-            indent = _child_indent(text, node, None)
-            return [(close, close, f"{indent}{serialized}")]
-        return [(close, close, serialized)]
-
-    last = node.items[-1]
-    between = text[last.end : close]
-    indent = _member_indent(text, node.items[0].start)
-    commas = getattr(node, "commas", [])
-    if (not commas or commas[-1] is None) and between == "":
-        return [(close, close, ", " + serialized)]
-    edits = []
-    if not commas or commas[-1] is None:
-        edits.append((last.end, last.end, ","))
-    if "\n" in between:
-        prefix = "" if between.rstrip(" \t\r\n") == "" else f"\n{indent}"
-        if between and between[-1] not in " \t\r\n":
-            prefix = f"\n{indent}"
-        edits.append((close, close, prefix + serialized))
-    else:
-        edits.append((close, close, " " + serialized))
-    return edits
+def _key_value(pair: Any, source: bytes) -> str:
+    key = pair.child_by_field_name("key")
+    if key is None or key.type != "string":
+        raise JsoncError("object member has no complete string key")
+    try:
+        value = json.loads(source[key.start_byte : key.end_byte].decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise JsoncError("object member key is not a valid JSON string") from exc
+    if not isinstance(value, str):
+        raise JsoncError("object member key is not a string")
+    return value
 
 
-def edit_remove_object_member(text: str, node: Node, key: str) -> list[tuple[int, int, str]]:
-    """Return edits removing only one object member and its separator."""
-    if node.kind != "object":
-        raise JsoncError("cannot remove an object member from a non-object")
-    index = next((i for i, member in enumerate(node.members) if member.key == key), None)
-    if index is None:
-        return []
-    member = node.members[index]
-    edits = [(member.key_start, member.value.end, "")]
-    if index == 0:
-        if member.comma is not None:
-            edits.append((member.comma.start, member.comma.end, ""))
-    else:
-        previous = node.members[index - 1]
-        if previous.comma is None:
-            raise JsoncError("object member has no separator")
-        edits.append((previous.comma.start, previous.comma.end, ""))
-    return edits
+def _object_pairs(node: Any) -> list[Any]:
+    return [child for child in node.named_children if child.type == "pair"]
 
 
-def edit_remove_array_item(text: str, node: Node, index: int) -> list[tuple[int, int, str]]:
-    """Return edits removing one array item and its separator."""
-    if node.kind != "array":
-        raise JsoncError("cannot remove an array item from a non-array")
-    if index < 0 or index >= len(node.items):
-        return []
-    item = node.items[index]
-    edits = [(item.start, item.end, "")]
-    # The parser stores separators on the preceding item by using a synthetic
-    # attribute set below.  Keeping the type generic avoids exposing tokens in
-    # the public setup API.
-    commas = getattr(node, "commas", [])
-    if index < len(commas) and commas[index] is not None:
-        edits.append((commas[index].start, commas[index].end, ""))
-    elif index > 0 and commas[index - 1] is not None:
-        edits.append((commas[index - 1].start, commas[index - 1].end, ""))
-    elif len(node.items) > 1:
-        raise JsoncError("array item has no separator")
-    return edits
+def _array_values(node: Any) -> list[Any]:
+    return [child for child in node.named_children if _is_value_node(child)]
 
 
-def apply_edits(text: str, edits: Iterable[tuple[int, int, str]]) -> str:
-    """Apply non-overlapping source edits from right to left."""
-    ordered = sorted(edits, key=lambda edit: (edit[0], edit[1]), reverse=True)
-    previous_start = len(text) + 1
-    for start, end, replacement in ordered:
-        if start < 0 or end < start or end > len(text) or end > previous_start:
-            raise JsoncError("overlapping or out-of-range JSONC edits")
-        previous_start = start
-        text = text[:start] + replacement + text[end:]
-    return text
-
-
-def _tokens(text: str) -> Iterable[Token]:
-    index = 0
-    length = len(text)
-    while index < length:
-        char = text[index]
-        if index == 0 and char == "\ufeff":
-            index += 1
-            continue
-        if char.isspace():
-            index += 1
-            continue
-        if text.startswith("//", index):
-            newline = text.find("\n", index + 2)
-            index = length if newline < 0 else newline + 1
-            continue
-        if text.startswith("/*", index):
-            end = text.find("*/", index + 2)
-            if end < 0:
-                raise JsoncError(f"unterminated comment at offset {index}")
-            index = end + 2
-            continue
-        if char in "{}[]:,":
-            yield Token(char, index, index + 1, char)
-            index += 1
-            continue
-        if char == '"':
-            end = _string_end(text, index)
-            raw = text[index:end]
-            try:
-                value = json.loads(raw)
-            except json.JSONDecodeError as exc:
-                raise JsoncError(f"invalid string at offset {index}: {exc.msg}") from exc
-            yield Token("string", index, end, value)
-            index = end
-            continue
-        number = _NUMBER.match(text, index)
-        if number:
-            raw = number.group(0)
-            value: Any = float(raw) if any(c in raw for c in ".eE") else int(raw)
-            yield Token("number", index, number.end(), value)
-            index = number.end()
-            continue
-        for literal, value in (("true", True), ("false", False), ("null", None)):
-            if text.startswith(literal, index) and _word_boundary(text, index, len(literal)):
-                yield Token(literal, index, index + len(literal), value)
-                index += len(literal)
-                break
+def _resolve_node(document: _Document, path: Sequence[str | int]) -> Any | None:
+    node = document.root
+    for segment in path:
+        if node.type == "object" and isinstance(segment, str):
+            match = None
+            for pair in _object_pairs(node):
+                if _key_value(pair, document.source) == segment:
+                    match = pair.child_by_field_name("value")
+                    break
+            if match is None:
+                return None
+            node = match
+        elif node.type == "array" and type(segment) is int:
+            values = _array_values(node)
+            if segment < 0 or segment >= len(values):
+                return None
+            node = values[segment]
         else:
-            raise JsoncError(f"unexpected character at offset {index}: {char!r}")
+            return None
+    return node
 
 
-def _string_end(text: str, start: int) -> int:
-    index = start + 1
-    while index < len(text):
-        if text[index] == "\\":
-            index += 2
-            continue
-        if text[index] == '"':
-            return index + 1
-        if text[index] in "\r\n":
-            raise JsoncError(f"newline in string at offset {start}")
-        index += 1
-    raise JsoncError(f"unterminated string at offset {start}")
+def _apply_byte_edits(source: bytes, edits: Iterable[tuple[int, int, bytes]]) -> str:
+    ordered = sorted(edits, key=lambda edit: (edit[0], edit[1]), reverse=True)
+    previous_start = len(source) + 1
+    result = source
+    for start, end, replacement in ordered:
+        if start < 0 or end < start or end > len(source) or end > previous_start:
+            raise JsoncError("overlapping or out-of-range JSONC edits")
+        if not isinstance(replacement, bytes):
+            raise JsoncError("JSONC replacement must be UTF-8 bytes")
+        result = result[:start] + replacement + result[end:]
+        previous_start = start
+    try:
+        return result.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise JsoncError(f"JSONC edit produced invalid UTF-8: {exc}") from exc
 
 
-def _word_boundary(text: str, start: int, length: int) -> bool:
-    end = start + length
-    return end == len(text) or not (text[end].isalnum() or text[end] == "_")
+def _validated_edit(document: _Document, edits: Iterable[tuple[int, int, bytes]]) -> str:
+    result = _apply_byte_edits(document.source, edits)
+    _validated(result)
+    return result
 
 
-class _Parser:
-    def __init__(self, tokens: list[Token], text: str) -> None:
-        self.tokens = tokens
-        self.text = text
-        self.index = 0
+def _line_start(source: bytes, position: int) -> int:
+    return source.rfind(b"\n", 0, position) + 1
 
-    def peek(self) -> Token | None:
-        return self.tokens[self.index] if self.index < len(self.tokens) else None
 
-    def take(self, kind: str | None = None) -> Token:
-        token = self.peek()
-        if token is None:
-            raise JsoncError("unexpected end of JSONC")
-        if kind is not None and token.kind != kind:
-            raise JsoncError(
-                f"expected {kind!r} at offset {token.start}, found {token.kind!r}"
+def _newline(source: bytes) -> bytes:
+    return b"\r\n" if b"\r\n" in source else b"\n"
+
+
+def _line_indent(source: bytes, position: int) -> bytes:
+    start = _line_start(source, position)
+    prefix = source[start:position]
+    return prefix if all(byte in b" \t" for byte in prefix) else b""
+
+
+def _child_indent(document: _Document, container: Any) -> bytes:
+    values = _direct_values(container)
+    if values:
+        indent = _line_indent(document.source, values[0].start_byte)
+        if indent or b"\n" in document.source[container.start_byte : container.end_byte]:
+            return indent
+    close_indent = _line_indent(document.source, container.end_byte - 1)
+    if close_indent or b"\n" in document.source[container.start_byte : container.end_byte]:
+        return close_indent + b"  "
+    return b"  "
+
+
+def _multiline_close(document: _Document, container: Any) -> tuple[int, bytes] | None:
+    close = container.end_byte - 1
+    line_start = _line_start(document.source, close)
+    indent = _line_indent(document.source, close)
+    if line_start > container.start_byte and document.source[line_start:close] == indent:
+        return line_start, indent
+    return None
+
+
+def _trailing_for(document: _Document, container: Any) -> tuple[int, int] | None:
+    candidates = [
+        (comma_start, comma_end)
+        for container_start, container_end, comma_start, comma_end
+        in document.trailing_commas
+        if container_start == container.start_byte
+        and container_end == container.end_byte
+    ]
+    if not candidates:
+        return None
+    return max(candidates)
+
+
+def _append_value(document: _Document, container: Any, value: Any) -> str:
+    serialized = _json_text(value)
+    close = container.end_byte - 1
+    existing = _direct_values(container)
+    trailing = _trailing_for(document, container)
+    edits: list[tuple[int, int, bytes]] = []
+    multiline = _multiline_close(document, container)
+    if multiline is not None:
+        line_start, _ = multiline
+        if existing and trailing is None:
+            edits.append((existing[-1].end_byte, existing[-1].end_byte, b","))
+        edits.append(
+            (
+                line_start,
+                line_start,
+                _child_indent(document, container) + serialized + _newline(document.source),
             )
-        self.index += 1
-        return token
-
-    def value(self) -> Node:
-        token = self.peek()
-        if token is None:
-            raise JsoncError("empty JSONC document")
-        if token.kind == "{":
-            return self.object()
-        if token.kind == "[":
-            return self.array()
-        self.take()
-        if token.kind not in {"string", "number", "true", "false", "null"}:
-            raise JsoncError(f"expected a JSON value at offset {token.start}")
-        return Node("primitive", token.start, token.end, token.value)
-
-    def object(self) -> Node:
-        opening = self.take("{")
-        members: list[Member] = []
-        seen: set[str] = set()
-        while self.peek() is not None and self.peek().kind != "}":
-            key = self.take("string")
-            if key.value in seen:
-                raise JsoncError(f"duplicate object key {key.value!r} at offset {key.start}")
-            seen.add(key.value)
-            self.take(":")
-            value = self.value()
-            comma = None
-            if self.peek() is not None and self.peek().kind == ",":
-                comma = self.take(",")
-            members.append(Member(key.value, key.start, key.end, value, comma))
-            if comma is None and self.peek() is not None and self.peek().kind != "}":
-                token = self.peek()
-                raise JsoncError(f"expected ',' at offset {token.start}")
-        closing = self.take("}")
-        return Node(
-            "object",
-            opening.start,
-            closing.end,
-            value={member.key: member.value.value for member in members},
-            members=members,
         )
+    elif existing:
+        edits.append((close, close, (b"" if trailing else b", ") + serialized))
+    else:
+        edits.append((close, close, serialized))
+    return _validated_edit(document, edits)
 
-    def array(self) -> Node:
-        opening = self.take("[")
-        items: list[Node] = []
-        commas: list[Token | None] = []
-        while self.peek() is not None and self.peek().kind != "]":
-            item = self.value()
-            comma = None
-            if self.peek() is not None and self.peek().kind == ",":
-                comma = self.take(",")
-            items.append(item)
-            commas.append(comma)
-            if comma is None and self.peek() is not None and self.peek().kind != "]":
-                token = self.peek()
-                raise JsoncError(f"expected ',' at offset {token.start}")
-        closing = self.take("]")
-        node = Node(
-            "array",
-            opening.start,
-            closing.end,
-            value=[item.value for item in items],
-            items=items,
+
+def _insert_object_member(document: _Document, container: Any, key: str, value: Any) -> str:
+    serialized = _json_text(value)
+    member = json.dumps(key, ensure_ascii=False).encode("utf-8") + b": " + serialized
+    close = container.end_byte - 1
+    existing = _object_pairs(container)
+    trailing = _trailing_for(document, container)
+    edits: list[tuple[int, int, bytes]] = []
+    multiline = _multiline_close(document, container)
+    if multiline is not None:
+        line_start, _ = multiline
+        if existing and trailing is None:
+            edits.append((existing[-1].end_byte, existing[-1].end_byte, b","))
+        edits.append(
+            (
+                line_start,
+                line_start,
+                _child_indent(document, container) + member + _newline(document.source),
+            )
         )
-        node.commas = commas  # type: ignore[attr-defined]
-        return node
+    elif existing:
+        edits.append((close, close, (b"" if trailing else b", ") + member))
+    else:
+        edits.append((close, close, member))
+    return _validated_edit(document, edits)
 
 
-def _member_indent(text: str, position: int) -> str:
-    line_start = text.rfind("\n", 0, position) + 1
-    prefix = text[line_start:position]
-    return prefix if prefix.strip() == "" else "  "
+def edit(text: str, path: Sequence[str | int], value: Any) -> str:
+    """Set one object property/array value with source-preserving edits."""
+    document = _validated(text)
+    if not path:
+        raise JsoncError("editing the JSONC document root is not supported")
+    parent = _resolve_node(document, path[:-1])
+    if parent is None:
+        raise JsoncError("cannot edit missing JSONC parent path")
+    segment = path[-1]
+    if parent.type == "object" and isinstance(segment, str):
+        for pair in _object_pairs(parent):
+            if _key_value(pair, document.source) == segment:
+                target = pair.child_by_field_name("value")
+                if target is None:
+                    raise JsoncError("object member has no complete value")
+                return _validated_edit(
+                    document,
+                    [(target.start_byte, target.end_byte, _json_text(value))],
+                )
+        return _insert_object_member(document, parent, segment, value)
+    if parent.type == "array" and type(segment) is int:
+        values = _array_values(parent)
+        if segment < 0 or segment > len(values):
+            raise JsoncError(f"array index {segment} is out of range")
+        if segment == len(values):
+            return _append_value(document, parent, value)
+        return _validated_edit(
+            document,
+            [(values[segment].start_byte, values[segment].end_byte, _json_text(value))],
+        )
+    raise JsoncError("JSONC edit path must target an object property or array index")
 
 
-def _child_indent(text: str, node: Node, position: int | None) -> str:
-    close_line = text.rfind("\n", 0, node.end - 1) + 1
-    close_prefix = text[close_line : node.end - 1]
-    base = close_prefix if close_prefix.strip() == "" else ""
-    return base + "  "
+def _direct_commas(node: Any) -> list[tuple[int, int]]:
+    return [
+        (child.start_byte, child.end_byte)
+        for child in node.children
+        if child.type == ","
+    ]
+
+
+def _remove_member(document: _Document, container: Any, target: Any) -> str:
+    members = _object_pairs(container)
+    index = members.index(target)
+    edits: list[tuple[int, int, bytes]] = [(target.start_byte, target.end_byte, b"")]
+    commas = _direct_commas(container)
+    next_member = members[index + 1] if index + 1 < len(members) else None
+    if next_member is not None:
+        following = [
+            comma
+            for comma in commas
+            if target.end_byte <= comma[0] < next_member.start_byte
+        ]
+        if following:
+            edits.append((following[0][0], following[0][1], b""))
+    else:
+        trailing = _trailing_for(document, container)
+        if trailing is not None:
+            edits.append((trailing[0], trailing[1], b""))
+        else:
+            preceding = [comma for comma in commas if comma[1] <= target.start_byte]
+            if preceding:
+                edits.append((preceding[-1][0], preceding[-1][1], b""))
+    return _validated_edit(document, edits)
+
+
+def _remove_item(document: _Document, container: Any, target: Any) -> str:
+    values = _array_values(container)
+    index = values.index(target)
+    edits: list[tuple[int, int, bytes]] = [(target.start_byte, target.end_byte, b"")]
+    commas = _direct_commas(container)
+    next_value = values[index + 1] if index + 1 < len(values) else None
+    if next_value is not None:
+        following = [
+            comma
+            for comma in commas
+            if target.end_byte <= comma[0] < next_value.start_byte
+        ]
+        if following:
+            edits.append((following[0][0], following[0][1], b""))
+    else:
+        trailing = _trailing_for(document, container)
+        if trailing is not None:
+            edits.append((trailing[0], trailing[1], b""))
+        else:
+            preceding = [comma for comma in commas if comma[1] <= target.start_byte]
+            if preceding:
+                edits.append((preceding[-1][0], preceding[-1][1], b""))
+    return _validated_edit(document, edits)
+
+
+def remove(text: str, path: Sequence[str | int]) -> str:
+    """Remove one object property or array value, preserving surrounding text."""
+    document = _validated(text)
+    if not path:
+        raise JsoncError("removing the JSONC document root is not supported")
+    parent = _resolve_node(document, path[:-1])
+    if parent is None:
+        raise JsoncError("cannot remove missing JSONC parent path")
+    segment = path[-1]
+    if parent.type == "object" and isinstance(segment, str):
+        for pair in _object_pairs(parent):
+            if _key_value(pair, document.source) == segment:
+                return _remove_member(document, parent, pair)
+        return text
+    if parent.type == "array" and type(segment) is int:
+        values = _array_values(parent)
+        if segment < 0 or segment >= len(values):
+            return text
+        return _remove_item(document, parent, values[segment])
+    raise JsoncError("JSONC removal path must target an object property or array index")
+
+
+def source_fragment(text: str, path: Sequence[str | int]) -> str | None:
+    """Return the exact UTF-8 source fragment for an object property."""
+    document = _validated(text)
+    if not path or not isinstance(path[-1], str):
+        return None
+    parent = _resolve_node(document, path[:-1])
+    if parent is None or parent.type != "object":
+        return None
+    for pair in _object_pairs(parent):
+        if _key_value(pair, document.source) == path[-1]:
+            try:
+                return document.source[pair.start_byte : pair.end_byte].decode("utf-8")
+            except UnicodeDecodeError as exc:
+                raise JsoncError("JSONC property fragment is not valid UTF-8") from exc
+    return None

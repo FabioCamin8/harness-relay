@@ -17,7 +17,11 @@
           "additionalProperties": false,
           "properties": {
             "enabled": {"type": "boolean", "default": false},
-            "executable": {"type": "string", "minLength": 1}
+            "executable": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^[^\\u0000]*$"
+            }
           }
         }
       }
@@ -31,9 +35,9 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "data": {"type": "string", "minLength": 1},
-        "worktrees": {"type": "string", "minLength": 1},
-        "artifacts": {"type": "string", "minLength": 1}
+        "data": {"type": "string", "minLength": 1, "pattern": "^[^\\u0000]*$"},
+        "worktrees": {"type": "string", "minLength": 1, "pattern": "^[^\\u0000]*$"},
+        "artifacts": {"type": "string", "minLength": 1, "pattern": "^[^\\u0000]*$"}
       }
     }
   }

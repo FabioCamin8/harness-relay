@@ -2,7 +2,15 @@
 
 Native harness delegation for OpenCode. Bring your own orchestrator model, keep your native agents, and delegate bounded tasks with structured results.
 
-**Status: PR-2 configuration/setup candidate.** The package now provides strict worker configuration, enabled-only executable discovery, and reversible OpenCode setup/uninstall. Native task adapters, MCP runtime delegation, worktrees, lifecycle, and doctor remain later work.
+**Status: PR-2 configuration/setup candidate.** The package provides strict worker configuration, enabled-only executable discovery, and reversible OpenCode setup/uninstall. Native task adapters, MCP runtime delegation, worktrees, lifecycle, and doctor remain later work. The setup-created MCP entry is disabled until PR-4 supplies and verifies the runtime.
+
+## Installation prerequisites
+
+Install the built wheel with Python 3.9 or newer. JSONC setup uses the pinned, Python-native `tree-sitter==0.23.2` and `tree-sitter-json==0.24.8` dependencies with no external runtime or network bootstrap. The test extra adds `jsonschema` for schema checks:
+
+```text
+python -m pip install 'harness-relay[test]'
+```
 
 ## One master, native workers
 
@@ -43,7 +51,7 @@ harness-relay validate-config PATH
 harness-relay uninstall --scope global
 ```
 
-`setup` supports an interactive worker/scope selection and equivalent file-driven non-interactive use. It writes only the user-local relay config when needed, a namespaced OpenCode MCP entry, a marked instruction fragment, and its ownership record. `--dry-run` performs validation and previews changes without writing. `uninstall` removes only unchanged owned integration content. `doctor`, native delegation, and live worker execution are later work.
+`setup` supports an interactive worker/scope selection and equivalent file-driven non-interactive use. It writes only the user-local relay config when needed, a namespaced OpenCode MCP entry (currently `enabled: false` pending PR-4), a marked instruction fragment, and its ownership record. `--dry-run` performs validation and previews changes without writing. `uninstall` removes only unchanged owned integration content. `doctor`, native delegation, and live worker execution are later work.
 
 The relay config is strict JSON, versioned at `1`, and defaults every worker to disabled:
 
@@ -59,6 +67,8 @@ The relay config is strict JSON, versioned at `1`, and defaults every worker to 
 ```
 
 Omit `executable` to use PATH discovery. A role must reference an enabled `codex`, `claude`, or `agy` worker. This file has no model, provider, or authentication settings; those remain owned by OpenCode and each native worker.
+
+The packaged JSON Schema checks structural types, names, and allowed values. Runtime validation additionally enforces cross-field rules such as a role referring to an enabled worker; JSON Schema alone intentionally accepts that structurally valid but semantically invalid intermediate document.
 
 ## Boundaries
 

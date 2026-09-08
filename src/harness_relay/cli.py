@@ -220,7 +220,10 @@ def _print_setup(plan) -> None:
     print(f"{prefix}HarnessRelay config: {plan.config_path}")
     print(f"{prefix}enabled workers: {', '.join(plan.enabled_workers) or 'none'}")
     for name, worker in plan.detected_workers.items():
-        print(f"{prefix}detected {name}: {worker.executable} ({worker.version}, {worker.source})")
+        print(
+            f"{prefix}detected {name}: {worker.executable} "
+            f"({worker.version}, {worker.version_status}, {worker.source})"
+        )
     if plan.dry_run:
         print(f"{prefix}would change: {_changes(plan)}")
     else:

@@ -7,8 +7,8 @@ import os
 from pathlib import Path
 
 from .configuration import UserPaths
-from .jsonc import canonical, find_member
-from .opencode import MCP_ENTRY, ScopeSelection, inspect_config, remove_owned, select_scope
+from .jsonc import source_fragment
+from .opencode import ScopeSelection, inspect_config, remove_owned, select_scope
 from .setup import (
     SetupError,
     _clear_pending,
@@ -16,6 +16,8 @@ from .setup import (
     _load_state,
     _sha256,
     atomic_write,
+    atomic_write_checked,
+    _optional_bytes,
     state_path,
 )
 
@@ -56,6 +58,7 @@ def run_uninstall(
         user_paths,
         explicit_path=options.opencode_config,
         project_dir=options.project_dir,
+        environ=environ,
     )
     instruction_path = user_paths.config_file.parent / "opencode-instructions.md"
     state_file = state_path(user_paths)
@@ -74,13 +77,18 @@ def run_uninstall(
         )
 
     opencode_text, root = inspect_config(selection.path)
-    if root.kind != "object":
+    opencode_before = (
+        opencode_text.encode("utf-8") if selection.path.is_file() else None
+    )
+    if not isinstance(root, dict):
         raise SetupError(f"OpenCode config root must be an object: {selection.path}")
-    mcp_unchanged = False
-    mcp = find_member(root, "mcp")
-    if mcp is not None and mcp.value.kind == "object":
-        relay = find_member(mcp.value, "harness-relay")
-        mcp_unchanged = relay is not None and canonical(relay.value.value) == canonical(MCP_ENTRY)
+    expected_mcp_hash = record.get("mcp_fragment_hash")
+    current_mcp_fragment = source_fragment(opencode_text, ["mcp", "harness-relay"])
+    mcp_unchanged = bool(
+        isinstance(expected_mcp_hash, str)
+        and current_mcp_fragment is not None
+        and _sha256(current_mcp_fragment.encode("utf-8")) == expected_mcp_hash
+    )
     remove_mcp = bool(record.get("mcp_owned", False) and mcp_unchanged)
     if record.get("mcp_owned", False) and not mcp_unchanged:
         preserved = ["mcp.harness-relay (it was edited or is no longer present)"]
@@ -88,8 +96,10 @@ def run_uninstall(
         preserved = []
 
     instruction_owned = bool(record.get("instruction_entry_owned", False))
+    instruction_before: bytes | None = None
     try:
         instruction_text = instruction_path.read_text(encoding="utf-8")
+        instruction_before = instruction_text.encode("utf-8")
     except FileNotFoundError:
         instruction_text = ""
     except OSError as exc:
@@ -134,9 +144,11 @@ def run_uninstall(
     if options.dry_run:
         return plan
     if plan.opencode_changed:
-        atomic_write(selection.path, new_text.encode("utf-8"))
+        atomic_write_checked(
+            selection.path, opencode_before, new_text.encode("utf-8"), "uninstall"
+        )
     if fragment_removed:
-        _remove_owned_fragment(instruction_path)
+        _remove_owned_fragment(instruction_path, instruction_before)
     if state_changed:
         if state_without != state:
             import json
@@ -150,8 +162,12 @@ def run_uninstall(
     return plan
 
 
-def _remove_owned_fragment(path: Path) -> None:
+def _remove_owned_fragment(path: Path, expected: bytes | None) -> None:
     """Unlink only the exact owned fragment; config is never restored wholesale."""
+    if _optional_bytes(path) != expected:
+        raise SetupError(
+            f"uninstall refused to remove {path}: file changed after inspection"
+        )
     try:
         path.unlink()
     except FileNotFoundError:

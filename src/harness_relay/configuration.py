@@ -16,7 +16,23 @@ from typing import Any, Mapping
 
 
 SUPPORTED_CONFIG_VERSION = 1
-SUPPORTED_ADAPTERS = ("codex", "claude", "agy")
+
+
+@dataclass(frozen=True)
+class AdapterSpec:
+    """Static identity used by setup discovery until PR-3 adds adapters."""
+
+    name: str
+    executable: str
+
+
+ADAPTER_REGISTRY = (
+    AdapterSpec("codex", "codex"),
+    AdapterSpec("claude", "claude"),
+    AdapterSpec("agy", "agy"),
+)
+ADAPTERS_BY_NAME = {adapter.name: adapter for adapter in ADAPTER_REGISTRY}
+SUPPORTED_ADAPTERS = tuple(adapter.name for adapter in ADAPTER_REGISTRY)
 WORKER_FIELDS = frozenset(("enabled", "executable"))
 PATH_FIELDS = frozenset(("data", "worktrees", "artifacts"))
 ROLE_NAME = re.compile(r"^[A-Za-z][A-Za-z0-9_-]{0,63}$")

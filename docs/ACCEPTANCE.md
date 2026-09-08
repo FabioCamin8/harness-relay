@@ -1,6 +1,6 @@
 # Acceptance gates
 
-All gates below are **planned / not yet run for HarnessRelay**. Evidence from a private predecessor or another installation does not automatically validate this public package.
+All gates below are **planned and not accepted by this document**. Local command observations are recorded separately from gate acceptance; evidence from a private predecessor or another installation does not automatically validate this public package.
 
 Each result records candidate SHA, test command, environment/version, observed outcome, and evidence location. Use passed, failed, blocked, or not run; never substitute an implementation summary for test evidence.
 
@@ -26,7 +26,9 @@ Normal CI uses fake native executables, temporary homes/configs, and disposable 
 
 ### PR-2 evidence
 
-G03 and G04 have passed offline verification for the current PR-2 candidate. The exact candidate SHA and environment are recorded in the PR handoff. The focused command is `PYTHONPATH=src python3 -m unittest discover -s tests -p 'test_pr2.py' -v`; the installed-artifact command is `env -u PYTHONPATH /tmp/harness-relay-pr2-venv/bin/python -m unittest discover -s tests -v`. Both cover strict config failures, enabled-only discovery, JSON/JSONC preservation, scope conflicts, dry-run, repeat no-op, ownership-safe uninstall, and injected interruption recovery. No live worker task, MCP runtime, worktree, lifecycle, doctor, CI/release, or G14 claim is made here.
+G03 and G04 are not marked accepted here. A fresh wheel was built from the current candidate working tree at `/tmp/harness-relay-pr2-artifacts.yyeLZa/harness_relay-0.1.0a1-py3-none-any.whl` (SHA-256 `fd47413ae692841772ba660d969175abc472452d637487c05538625a7d3091cb`) and installed with its `[test]` extra into `/tmp/harness-relay-pr2-wheelcheck.mQKImm`. From `/tmp`, with `PYTHONPATH` unset, the installed artifact observed 31/31 PR-2 tests OK, 4/4 package tests OK, and 35/35 tests OK overall. The PR-2 tests cover strict config failures, enabled-only discovery, JSON/JSONC preservation, nested trailing commas, malformed recovery rejection, UTF-8/CRLF ranges, all removal positions, scope conflicts, dry-run, repeat no-op, cold no-process/no-network behavior, ownership-safe uninstall, and injected interruption recovery. These are candidate observations; the exact candidate SHA and gate disposition belong in the PR handoff. No live worker task, MCP runtime, worktree, lifecycle, doctor, CI/release, or G14 claim is made here.
+
+JSONC setup uses the pinned Python-native Tree-sitter parser pair (`tree-sitter==0.23.2`, `tree-sitter-json==0.24.8`) with no external runtime or network bootstrap. The setup-created `mcp.harness-relay` entry remains `enabled: false` until PR-4 implements and verifies the MCP runtime.
 
 Use adversarial but harmless fixtures: filenames with spaces and unusual characters, identifiers containing separators, a fake CLI that spawns a child, a worker that commits and exits, an existing dirty checkout, and a JSONC config containing unrelated comments/keys. Do not treat a denylist of the maintainer's removed tools as a universal product test.
 

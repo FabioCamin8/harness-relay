@@ -3,13 +3,17 @@
 from __future__ import annotations
 
 from pathlib import Path
+import json
 import os
 import tempfile
 import unittest
 from unittest import mock
 from importlib import resources
+import jsonschema
 
 import harness_relay.setup as setup_module
+import harness_relay.opencode as opencode_module
+import harness_relay.uninstall as uninstall_module
 from harness_relay.configuration import (
     ConfigurationError,
     UserPaths,
@@ -18,19 +22,55 @@ from harness_relay.configuration import (
     parse_config,
 )
 from harness_relay.discovery import DiscoveryError, discover_enabled
+from harness_relay.jsonc import edit as edit_jsonc
+from harness_relay.jsonc import parse as parse_jsonc, remove as remove_jsonc
+from harness_relay.jsonc import source_fragment
 from harness_relay.opencode import MCP_ENTRY, MCP_NAME, canonical, integrate
 from harness_relay.setup import SetupError, SetupOptions, run_setup
 from harness_relay.uninstall import UninstallOptions, run_uninstall
 
 
 class Pr2Test(unittest.TestCase):
+    def test_jsonc_parser_dependencies_are_available(self) -> None:
+        import tree_sitter
+        import tree_sitter_json
+
+        self.assertIsNotNone(tree_sitter)
+        self.assertIsNotNone(tree_sitter_json)
+
     def test_default_config_disables_every_worker(self) -> None:
         config = default_config()
         self.assertEqual(config.enabled_workers, ())
         self.assertEqual(config.roles, {})
 
-    def test_versioned_schema_is_packaged_as_a_resource(self) -> None:
-        self.assertTrue(resources.files("harness_relay.resources").joinpath("config.schema.json").is_file())
+    def test_packaged_schema_validates_structural_config_rules(self) -> None:
+        schema_path = resources.files("harness_relay.resources").joinpath(
+            "config.schema.json"
+        )
+        schema = json.loads(schema_path.read_text(encoding="utf-8"))
+        validator = jsonschema.Draft202012Validator(schema)
+        valid = {
+            "version": 1,
+            "workers": {
+                "codex": {"enabled": True, "executable": "/usr/local/bin/codex"}
+            },
+            "roles": {"implementer": "codex"},
+            "paths": {"data": "~/.local/share/harness-relay"},
+        }
+        self.assertEqual(list(validator.iter_errors(valid)), [])
+        for invalid in (
+            {"version": 1, "workers": {"codex": {"enabled": 1}}},
+            {"version": 1, "workers": {"unknown": {"enabled": True}}},
+            {"version": 1, "paths": {"data": "bad\x00path"}},
+        ):
+            with self.subTest(invalid=invalid):
+                self.assertTrue(list(validator.iter_errors(invalid)))
+        # JSON Schema cannot express that a role's adapter is enabled.  The
+        # runtime validator owns this cross-field semantic rule.
+        role_without_enabled_worker = {"version": 1, "roles": {"reviewer": "codex"}}
+        self.assertEqual(list(validator.iter_errors(role_without_enabled_worker)), [])
+        with self.assertRaisesRegex(ConfigurationError, "not enabled"):
+            parse_config(role_without_enabled_worker)
 
     def test_config_is_strict_and_role_must_reference_enabled_adapter(self) -> None:
         with self.assertRaisesRegex(ConfigurationError, "unsupported config version"):
@@ -83,7 +123,7 @@ class Pr2Test(unittest.TestCase):
             discover_enabled(config, environ={"PATH": ""})
         with tempfile.TemporaryDirectory() as directory:
             executable = Path(directory) / "codex"
-            executable.write_text("#!/bin/sh\nprintf 'codex-cli future\\n'\n", encoding="utf-8")
+            executable.write_text("#!/bin/sh\nprintf 'codex-cli 99.0.0\\n'\n", encoding="utf-8")
             executable.chmod(0o755)
             config = parse_config(
                 {
@@ -91,8 +131,109 @@ class Pr2Test(unittest.TestCase):
                     "workers": {"codex": {"enabled": True, "executable": str(executable)}},
                 }
             )
-            with self.assertRaisesRegex(DiscoveryError, "semantic version"):
-                discover_enabled(config)
+            found = discover_enabled(config)
+            self.assertEqual(found["codex"].version, "99.0.0")
+            self.assertEqual(found["codex"].version_status, "detected-unverified")
+
+    def test_duplicate_jsonc_keys_are_rejected(self) -> None:
+        with self.assertRaisesRegex(ValueError, "duplicate object key"):
+            integrate('{"mcp": {}, "mcp": {}}', "/tmp/instructions.md")
+
+    def test_jsonc_comments_and_nested_trailing_commas_are_supported(self) -> None:
+        source = """{
+          // before object member
+          "outer": {
+            "items": [
+              1,
+              /* between values */
+              {"nested": true},
+            ], // array trailing comma
+          },
+        }
+        """
+        self.assertEqual(
+            parse_jsonc(source), {"outer": {"items": [1, {"nested": True}]}}
+        )
+
+    def test_jsonc_insert_uses_only_parent_trailing_comma(self) -> None:
+        source = '{"outer": {"a": 1,}, "values": [2,]}'
+        edited = edit_jsonc(source, ["added"], 3)
+        self.assertEqual(
+            parse_jsonc(edited),
+            {"outer": {"a": 1}, "values": [2], "added": 3},
+        )
+        self.assertIn('"outer": {"a": 1,}', edited)
+        self.assertIn('"values": [2,]', edited)
+
+    def test_jsonc_rejects_unrecognized_error_recovery(self) -> None:
+        for source in (
+            "{,}",
+            "[1,,]",
+            '{"a": 1 "b": 2}',
+            '{"a": 01}',
+            '{"a": "unterminated}',
+            "{/* unterminated */",
+            '{"a": NaN}',
+        ):
+            with self.subTest(source=source):
+                with self.assertRaises(ValueError):
+                    parse_jsonc(source)
+
+    def test_jsonc_rejects_escaped_duplicate_keys_at_any_depth(self) -> None:
+        with self.assertRaisesRegex(ValueError, "duplicate object key"):
+            parse_jsonc('{"outer": {"\\u0061": 1, "a": 2}}')
+
+    def test_jsonc_source_fragment_and_edits_are_utf8_byte_safe(self) -> None:
+        source = '{"prefix": "é😀", "target": {"значение": "値"}, "tail": 3}'
+        self.assertEqual(
+            source_fragment(source, ["target"]), '"target": {"значение": "値"}'
+        )
+        edited = integrate(source, "/tmp/инструкции.md")[0]
+        self.assertEqual(parse_jsonc(edited)["prefix"], "é😀")
+        self.assertEqual(parse_jsonc(edited)["target"]["значение"], "値")
+
+    def test_jsonc_crlf_and_comments_around_delimiters_survive_edits(self) -> None:
+        source = '{\r\n  /* before */ "a": 1 /* after */,\r\n  "b": 2,\r\n}\r\n'
+        removed = remove_jsonc(source, ["a"])
+        self.assertEqual(parse_jsonc(removed), {"b": 2})
+        self.assertIn("/* before */", removed)
+        self.assertIn("/* after */", removed)
+        self.assertIn("\r\n", removed)
+        inserted = integrate(removed, "/tmp/instructions.md")[0]
+        self.assertEqual(parse_jsonc(inserted)["b"], 2)
+        self.assertIn("\r\n", inserted)
+
+    def test_jsonc_removes_first_middle_last_object_and_array_values(self) -> None:
+        object_source = '{"first": 1, /* middle */ "middle": 2, "last": 3,}'
+        self.assertEqual(parse_jsonc(remove_jsonc(object_source, ["first"])),
+                         {"middle": 2, "last": 3})
+        self.assertEqual(parse_jsonc(remove_jsonc(object_source, ["middle"])),
+                         {"first": 1, "last": 3})
+        self.assertEqual(parse_jsonc(remove_jsonc(object_source, ["last"])),
+                         {"first": 1, "middle": 2})
+        array_source = '[1, /* middle */ 2, 3,]'
+        self.assertEqual(parse_jsonc(remove_jsonc(array_source, [0])), [2, 3])
+        self.assertEqual(parse_jsonc(remove_jsonc(array_source, [1])), [1, 3])
+        self.assertEqual(parse_jsonc(remove_jsonc(array_source, [2])), [1, 2])
+
+    def test_cold_dry_run_does_not_spawn_or_create_files(self) -> None:
+        with self._workspace() as (root, environment, relay_config, opencode):
+            before = {path.relative_to(root) for path in root.rglob("*")}
+            with mock.patch("subprocess.run", side_effect=AssertionError("process")):
+                with mock.patch("socket.socket", side_effect=AssertionError("network")):
+                    plan = run_setup(
+                        SetupOptions(
+                            relay_config=relay_config,
+                            scope="custom",
+                            opencode_config=opencode,
+                            dry_run=True,
+                            probe=False,
+                        ),
+                        environ=environment,
+                    )
+            after = {path.relative_to(root) for path in root.rglob("*")}
+            self.assertTrue(plan.dry_run)
+            self.assertEqual(before, after)
 
     def test_jsonc_integration_preserves_unrelated_content(self) -> None:
         original = '{\n  // user-owned comment\n  "theme": "dark",\n  "model": "user/provider/model",\n  "provider": "user-provider",\n  "auth": {"profile": "existing-user-auth"},\n  "mcp": {"other": {"enabled": true}},\n}\n'
@@ -102,7 +243,7 @@ class Pr2Test(unittest.TestCase):
         self.assertIn('"model": "user/provider/model"', integrated)
         self.assertIn('"provider": "user-provider"', integrated)
         self.assertIn('"auth": {"profile": "existing-user-auth"}', integrated)
-        self.assertIn('"other": {"enabled": true}', integrated)
+        self.assertEqual(parse_jsonc(integrated)["mcp"]["other"], {"enabled": True})
         self.assertIn('"harness-relay"', integrated)
         self.assertIn('"instructions"', integrated)
 
@@ -146,6 +287,104 @@ class Pr2Test(unittest.TestCase):
             self.assertFalse(repeated.changed)
             self.assertEqual(opencode.read_text(encoding="utf-8"), after_first)
 
+    def test_identical_explicit_override_does_not_rewrite_config(self) -> None:
+        with self._workspace() as (root, environment, relay_config, opencode):
+            before = relay_config.read_bytes()
+            first = run_setup(
+                SetupOptions(
+                    relay_config=relay_config,
+                    scope="custom",
+                    opencode_config=opencode,
+                    enabled=set(),
+                    probe=False,
+                ),
+                environ=environment,
+            )
+            self.assertFalse(first.config_changed)
+            after_first = relay_config.stat().st_mtime_ns
+            second = run_setup(
+                SetupOptions(
+                    relay_config=relay_config,
+                    scope="custom",
+                    opencode_config=opencode,
+                    enabled=set(),
+                    probe=False,
+                ),
+                environ=environment,
+            )
+            self.assertFalse(second.config_changed)
+            self.assertFalse(second.changed)
+            self.assertEqual(relay_config.read_bytes(), before)
+            self.assertEqual(relay_config.stat().st_mtime_ns, after_first)
+
+    def test_setup_refuses_concurrent_opencode_edit(self) -> None:
+        with self._workspace() as (root, environment, relay_config, opencode):
+            real_checked = setup_module.atomic_write_checked
+
+            def inject_edit(path, expected, content, operation):
+                if path == opencode:
+                    path.write_text('{"user_changed": true}\n', encoding="utf-8")
+                return real_checked(path, expected, content, operation)
+
+            with mock.patch.object(
+                setup_module, "atomic_write_checked", side_effect=inject_edit
+            ):
+                with self.assertRaisesRegex(SetupError, "changed after inspection"):
+                    run_setup(
+                        SetupOptions(
+                            relay_config=relay_config,
+                            scope="custom",
+                            opencode_config=opencode,
+                        ),
+                        environ=environment,
+                    )
+            self.assertEqual(opencode.read_text(encoding="utf-8"), '{"user_changed": true}\n')
+
+    def test_uninstall_refuses_concurrent_opencode_edit(self) -> None:
+        with self._workspace() as (root, environment, relay_config, opencode):
+            run_setup(
+                SetupOptions(relay_config=relay_config, scope="custom", opencode_config=opencode),
+                environ=environment,
+            )
+            real_checked = uninstall_module.atomic_write_checked
+
+            def inject_edit(path, expected, content, operation):
+                path.write_text('{"user_changed": true}\n', encoding="utf-8")
+                return real_checked(path, expected, content, operation)
+
+            with mock.patch.object(
+                uninstall_module, "atomic_write_checked", side_effect=inject_edit
+            ):
+                with self.assertRaisesRegex(SetupError, "changed after inspection"):
+                    run_uninstall(
+                        UninstallOptions(scope="custom", opencode_config=opencode),
+                        environ=environment,
+                    )
+            self.assertEqual(opencode.read_text(encoding="utf-8"), '{"user_changed": true}\n')
+
+    def test_uninstall_refuses_concurrent_instruction_edit(self) -> None:
+        with self._workspace() as (root, environment, relay_config, opencode):
+            run_setup(
+                SetupOptions(relay_config=relay_config, scope="custom", opencode_config=opencode),
+                environ=environment,
+            )
+            instruction = root / "cfg" / "harness-relay" / "opencode-instructions.md"
+            real_remove = uninstall_module._remove_owned_fragment
+
+            def inject_edit(path, expected):
+                path.write_text("user changed instructions\n", encoding="utf-8")
+                return real_remove(path, expected)
+
+            with mock.patch.object(
+                uninstall_module, "_remove_owned_fragment", side_effect=inject_edit
+            ):
+                with self.assertRaisesRegex(SetupError, "changed after inspection"):
+                    run_uninstall(
+                        UninstallOptions(scope="custom", opencode_config=opencode),
+                        environ=environment,
+                    )
+            self.assertEqual(instruction.read_text(encoding="utf-8"), "user changed instructions\n")
+
     def test_uninstall_preserves_unrelated_and_edited_owned_content(self) -> None:
         with self._workspace() as (root, environment, relay_config, opencode):
             run_setup(
@@ -155,7 +394,7 @@ class Pr2Test(unittest.TestCase):
             instruction = root / "cfg" / "harness-relay" / "opencode-instructions.md"
             instruction.write_text("user-edited HarnessRelay guidance\n", encoding="utf-8")
             configured = opencode.read_text(encoding="utf-8")
-            configured = configured.replace('"theme":"dark"', '"theme":"light"')
+            configured = configured.replace('"theme": "dark"', '"theme": "light"')
             opencode.write_text(configured, encoding="utf-8")
             plan = run_uninstall(
                 UninstallOptions(scope="custom", opencode_config=opencode),
@@ -164,7 +403,7 @@ class Pr2Test(unittest.TestCase):
             self.assertTrue(plan.changed)
             result = opencode.read_text(encoding="utf-8")
             self.assertIn("user-owned comment", result)
-            self.assertIn('"theme":"light"', result)
+            self.assertIn('"theme": "light"', result)
             self.assertNotIn(MCP_NAME, result)
             self.assertNotIn(str(instruction), result)
             self.assertEqual(instruction.read_text(encoding="utf-8"), "user-edited HarnessRelay guidance\n")
@@ -176,8 +415,24 @@ class Pr2Test(unittest.TestCase):
                 environ=environment,
             )
             configured = opencode.read_text(encoding="utf-8").replace(
-                '"enabled":true', '"enabled":false'
+                '"enabled": false', '"enabled": true'
             )
+            opencode.write_text(configured, encoding="utf-8")
+            plan = run_uninstall(
+                UninstallOptions(scope="custom", opencode_config=opencode),
+                environ=environment,
+            )
+            self.assertIn("mcp.harness-relay", " ".join(plan.preserved_user_edits))
+            self.assertIn(MCP_NAME, opencode.read_text(encoding="utf-8"))
+
+    def test_uninstall_preserves_semantically_equal_but_byte_edited_mcp(self) -> None:
+        with self._workspace() as (root, environment, relay_config, opencode):
+            run_setup(
+                SetupOptions(relay_config=relay_config, scope="custom", opencode_config=opencode),
+                environ=environment,
+            )
+            configured = opencode.read_text(encoding="utf-8")
+            configured = configured.replace('"type": "local"', '"type" : "local"')
             opencode.write_text(configured, encoding="utf-8")
             plan = run_uninstall(
                 UninstallOptions(scope="custom", opencode_config=opencode),
@@ -204,6 +459,77 @@ class Pr2Test(unittest.TestCase):
                     ),
                     environ=environment,
                 )
+
+    def test_opencode_environment_config_conflict_is_reported(self) -> None:
+        with self._workspace() as (root, environment, relay_config, opencode):
+            override = root / "env-opencode.json"
+            override.write_text(
+                '{"mcp":{"harness-relay":{"type":"remote","url":"user"}}}\n',
+                encoding="utf-8",
+            )
+            environment = dict(environment, OPENCODE_CONFIG=str(override))
+            with self.assertRaisesRegex(SetupError, "higher-precedence"):
+                run_setup(
+                    SetupOptions(
+                        relay_config=relay_config,
+                        scope="global",
+                        project_dir=root / "project",
+                    ),
+                    environ=environment,
+                )
+
+    def test_custom_scope_environment_config_conflict_is_reported(self) -> None:
+        with self._workspace() as (root, environment, relay_config, opencode):
+            override = root / "env-opencode.json"
+            override.write_text(
+                '{"mcp":{"harness-relay":{"type":"remote","url":"user"}}}\n',
+                encoding="utf-8",
+            )
+            environment = dict(environment, OPENCODE_CONFIG=str(override))
+            with self.assertRaisesRegex(SetupError, "higher-precedence"):
+                run_setup(
+                    SetupOptions(
+                        relay_config=relay_config,
+                        scope="custom",
+                        opencode_config=opencode,
+                    ),
+                    environ=environment,
+                )
+
+    def test_inline_opencode_config_conflict_is_reported(self) -> None:
+        with self._workspace() as (root, environment, relay_config, opencode):
+            environment = dict(
+                environment,
+                OPENCODE_CONFIG_CONTENT='{"instructions": ["/other.md"]}',
+            )
+            with self.assertRaisesRegex(SetupError, "OPENCODE_CONFIG_CONTENT"):
+                run_setup(
+                    SetupOptions(
+                        relay_config=relay_config,
+                        scope="custom",
+                        opencode_config=opencode,
+                    ),
+                    environ=environment,
+                )
+
+    def test_managed_opencode_config_conflict_is_reported(self) -> None:
+        with self._workspace() as (root, environment, relay_config, opencode):
+            managed = root / "managed"
+            managed.mkdir()
+            (managed / "opencode.json").write_text(
+                '{"mcp":{"harness-relay":{"type":"remote","url":"managed"}}}\n',
+                encoding="utf-8",
+            )
+            with mock.patch.object(opencode_module, "MANAGED_CONFIG_DIR", managed):
+                with self.assertRaisesRegex(SetupError, "higher-precedence"):
+                    run_setup(
+                        SetupOptions(
+                            relay_config=relay_config,
+                            scope="custom",
+                            opencode_config=opencode,
+                        ),
+                        environ=environment,
+                    )
 
     def test_atomic_failure_leaves_existing_config_unchanged(self) -> None:
         with self._workspace() as (root, environment, relay_config, opencode):
@@ -296,7 +622,7 @@ class Pr2Test(unittest.TestCase):
         )
         opencode = root / "opencode.jsonc"
         opencode.write_text(
-            '{\n  // user-owned comment\n  "theme":"dark",\n}\n', encoding="utf-8"
+            '{\n  // user-owned comment\n  "theme": "dark",\n}\n', encoding="utf-8"
         )
         environment = {
             "HOME": str(root),
