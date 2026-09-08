@@ -349,7 +349,22 @@ class Pr3Test(unittest.TestCase):
 
     @staticmethod
     def _git(cwd: Path, *args: str) -> None:
-        subprocess.run(("git", *args), cwd=cwd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        subprocess.run(
+            (
+                "git",
+                "-c",
+                "user.name=root",
+                "-c",
+                "user.email=root@agent.caminotto.it",
+                "-c",
+                "commit.gpgsign=false",
+                *args,
+            ),
+            cwd=cwd,
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
 
     @staticmethod
     def _fake_worker(
