@@ -116,7 +116,7 @@ Update this table only with actual PR/commit evidence. PR bodies hold detailed t
 | PR-1 | Reviewed PASS | [#1](https://github.com/FabioCamin8/harness-relay/pull/1) |
 | PR-2 | Reviewed G03/G04 PASS at `8849e04`; evidence-only delta reviewed | [#2](https://github.com/FabioCamin8/harness-relay/pull/2) |
 | PR-3 | Local lead G05-G08 PASS; maintainer review pending | [#3](https://github.com/FabioCamin8/harness-relay/pull/3) |
-| PR-4 | Local lead G09-G13 PASS; maintainer review pending | [#4](https://github.com/FabioCamin8/harness-relay/pull/4), code `b92f828` |
+| PR-4 | Local lead G09-G13 PASS; maintainer review pending | [#4](https://github.com/FabioCamin8/harness-relay/pull/4), code `62bb05d` |
 | PR-5 | Not started | — |
 
 ## Stop rules and deferred work
