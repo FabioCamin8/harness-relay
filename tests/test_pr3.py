@@ -502,6 +502,7 @@ class Pr3Test(unittest.TestCase):
         worker = root / "fake-worker.py"
         worker.write_text(
             f"#!{sys.executable}\n"
+            "# -*- coding: utf-8 -*-\n"
             "import os, sys, time\n"
             f"time.sleep({sleep!r})\n"
             f"sys.stdout.write({output!r})\n"
