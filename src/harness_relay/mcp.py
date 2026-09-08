@@ -34,7 +34,8 @@ class McpServer:
         self.lock = threading.Lock()
         self.active: dict[Any, tuple[str, threading.Event]] = {}
         self.results: dict[str, dict[str, Any]] = {}
-        self.pool = ThreadPoolExecutor(max_workers=max(1, len(config.enabled_workers)))
+        self.capacity = max(1, len(config.enabled_workers))
+        self.pool = ThreadPoolExecutor(max_workers=self.capacity)
         self.state_dir = paths.state_dir / "runs"
 
     def serve(self, stdin: BinaryIO | None = None) -> None:
@@ -143,8 +144,15 @@ class McpServer:
         run_id = uuid.uuid4().hex
         event = threading.Event()
         with self.lock:
-            self.active[request_id] = (run_id, event)
-            self.results[run_id] = {"run_id": run_id, "state": "running"}
+            duplicate = request_id in self.active
+            busy = len(self.active) >= self.capacity
+            if not duplicate and not busy:
+                self.active[request_id] = (run_id, event)
+                self.results[run_id] = {"run_id": run_id, "state": "running"}
+        if duplicate:
+            self._write(self._error(request_id, -32600, "duplicate active request id")); return
+        if busy:
+            self._write(self._success(request_id, {"state": "busy", "message": "worker capacity is in use"}, error=True)); return
         self._persist(run_id)
         self.pool.submit(self._execute, request_id, run_id, worker_name, arguments, event)
 
@@ -157,6 +165,11 @@ class McpServer:
                 arguments["base_sha"],
                 run_id,
             )
+            with self.lock:
+                self.results[run_id].update(
+                    workspace=str(reservation.worktree), base_sha=reservation.base_sha
+                )
+            self._persist(run_id)
             before = capture_integrity(reservation.worktree)
             worker = discover_worker(self.config.workers[worker_name])
             sandbox = arguments.get("sandbox")
