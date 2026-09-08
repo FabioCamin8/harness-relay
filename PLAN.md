@@ -1,6 +1,6 @@
 # Implementation plan
 
-Baseline: 2026-09-07. Status: PR-1 is merged; PR-2 implementation candidate is being verified on its dedicated branch.
+Baseline: 2026-09-07. Status: PR-1 is merged; PR-2 candidate is open for review with G03/G04 offline PASS evidence.
 
 ## Product contract
 
@@ -113,7 +113,7 @@ Update this table only with actual PR/commit evidence. PR bodies hold detailed t
 | Package | State | PR / reviewed candidate |
 | --- | --- | --- |
 | PR-1 | Reviewed PASS | [#1](https://github.com/FabioCamin8/harness-relay/pull/1) |
-| PR-2 | Implementation candidate; G03/G04 offline verification in progress | — |
+| PR-2 | Candidate; G03/G04 offline PASS | [#2](https://github.com/FabioCamin8/harness-relay/pull/2) |
 | PR-3 | Not started | — |
 | PR-4 | Not started | — |
 | PR-5 | Not started | — |
