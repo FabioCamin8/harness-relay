@@ -197,7 +197,11 @@ def build_result(
             "stdout": _safe_text(stdout),
             "stderr": _safe_text(stderr),
             "events": safe_events,
-            "parse_error": native.parse_error,
+            "parse_error": (
+                _safe_structured_text(native.parse_error)
+                if native.parse_error is not None
+                else None
+            ),
         },
     }
     return _fit_mcp_result(result)
@@ -486,9 +490,17 @@ def _fit_mcp_result(result: dict[str, Any]) -> dict[str, Any]:
     if _mcp_text_size(result) <= MAX_MCP_RESULT_BYTES:
         return result
 
-    result["evidence"].update(stdout=marker, stderr=marker)
+    result["evidence"].update(
+        stdout=marker,
+        stderr=marker,
+        parse_error=(
+            marker if result["evidence"]["parse_error"] is not None else None
+        ),
+    )
     result["validation"].update(stdout=marker, stderr=marker)
     result["git"].update(after_worker=None, after_validation=None, errors=[marker])
+    if _mcp_text_size(result) > MAX_MCP_RESULT_BYTES:
+        raise ResultValidationError("normalized result exceeds MCP response budget")
     return result
 
 

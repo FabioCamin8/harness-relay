@@ -221,6 +221,24 @@ class Pr3Test(unittest.TestCase):
                 self.assertNotIn('"code":-32603', line)
                 validate_result(result)
 
+    def test_malformed_line_diagnostics_fit_mcp_response(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            fake = self._fake_worker(root, "x\n" * 40000)
+            result = run_task(
+                DetectedWorker("codex", fake, "0.153.4", "test"),
+                TaskRequest(prompt="ignored", cwd=root, timeout=2),
+            )
+            self.assertEqual(result["native"]["outcome"], "malformed_output")
+            self.assertIn("[TRUNCATED]", result["evidence"]["parse_error"])
+            response = McpServer._success(
+                1, {"run_id": "malformed", "state": "completed", "result": result}
+            )
+            line = json.dumps(response, ensure_ascii=False, separators=(",", ":"))
+            self.assertLessEqual(len(line.encode()), MAX_MESSAGE)
+            self.assertNotIn('"code":-32603', line)
+            validate_result(result)
+
     def test_adapter_specific_nested_events_and_stderr_are_classified(self) -> None:
         fixtures = (
             (
