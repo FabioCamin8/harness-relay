@@ -5,6 +5,7 @@ from __future__ import annotations
 import contextlib
 import io
 import json
+import os
 from pathlib import Path
 import subprocess
 import sys
@@ -76,7 +77,14 @@ class Pr8Test(unittest.TestCase):
             self._git(repository, "init")
             (repository / "source.txt").write_text("source\n", encoding="utf-8")
             self._git(repository, "add", "source.txt")
-            self._git(repository, "-c", "commit.gpgsign=false", "commit", "-m", "base")
+            self._git(
+                repository,
+                "-c",
+                "commit.gpgsign=false",
+                "commit",
+                "-m",
+                "base",
+            )
             base = self._git(repository, "rev-parse", "HEAD")
 
             fake = root / "agy"
@@ -188,6 +196,17 @@ class Pr8Test(unittest.TestCase):
 
     @staticmethod
     def _git(cwd: Path, *arguments: str) -> str:
+        environment = None
+        if "commit" in arguments:
+            environment = os.environ.copy()
+            name = Pr8Test._git_config(cwd, "user.name") or "HarnessRelay Test"
+            email = Pr8Test._git_config(cwd, "user.email") or "test@example.invalid"
+            environment.update(
+                GIT_AUTHOR_NAME=name,
+                GIT_AUTHOR_EMAIL=email,
+                GIT_COMMITTER_NAME=name,
+                GIT_COMMITTER_EMAIL=email,
+            )
         result = subprocess.run(
             ["git", *arguments],
             cwd=cwd,
@@ -195,6 +214,19 @@ class Pr8Test(unittest.TestCase):
             text=True,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
+            env=environment,
+        )
+        return result.stdout.strip()
+
+    @staticmethod
+    def _git_config(cwd: Path, key: str) -> str:
+        result = subprocess.run(
+            ["git", "config", "--get", key],
+            cwd=cwd,
+            check=False,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
         )
         return result.stdout.strip()
 
