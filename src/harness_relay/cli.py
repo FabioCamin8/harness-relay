@@ -210,7 +210,9 @@ def _run_setup(args: argparse.Namespace) -> int:
             custom_path = input("Custom OpenCode config path: ").strip()
             if custom_path:
                 args.opencode_config = Path(custom_path)
-        args.workers = input("Enabled workers (codex, claude, agy; empty for none): ").strip()
+        args.workers = input(
+            f"Enabled workers ({', '.join(SUPPORTED_ADAPTERS)}; empty for none): "
+        ).strip()
         role_text = input("Role preferences (role=adapter, comma-separated; optional): ").strip()
         if role_text:
             args.role.extend(part.strip() for part in role_text.split(",") if part.strip())

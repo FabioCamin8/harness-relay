@@ -23,14 +23,14 @@ HarnessRelay — translate, execute, isolate, return
   +-- Codex CLI        -> native configuration and agent loop
   +-- Claude Code      -> native configuration and agent loop
   +-- AGY              -> native configuration and agent loop
-  `-- OpenCode          -> planned in PR-7
+  `-- OpenCode         -> native configuration and agent loop
 ```
 
 HarnessRelay standardizes task invocation, workspace handling, lifecycle, and results. It does not standardize away each harness's strengths.
 
 The caller owns planning, task selection, and worker choice. Any supported harness may call any configured worker, including another instance of itself. Each worker retains its native model, authentication, provider, permissions, tools, MCPs, skills, and internal subagents. HarnessRelay does not manage those settings.
 
-Relay has no mandatory caller, model, provider, shared service, or remote host. Universal means one small native adapter contract, not automatic support for every executable on PATH.
+Relay has no mandatory caller, model, provider, shared service, or remote host. The tested OpenCode worker invokes its installed CLI as `opencode run --format json --dir PATH [--model VALUE] -- PROMPT`. Relay does not pass `--auto`, replace the native agent, or translate the shared effort field into OpenCode's provider-specific `--variant`; unsupported overrides fail explicitly. Universal means one small native adapter contract, not automatic support for every executable on PATH.
 
 ## Intended workflow
 

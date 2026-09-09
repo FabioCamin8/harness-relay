@@ -122,6 +122,13 @@ def build_invocation(worker: DetectedWorker, task: TaskRequest) -> Invocation:
         if task.model is not None:
             args.extend(("--model", task.model))
         args.extend(("--cd", str(task.cwd), "--", task.prompt))
+    elif adapter.name == "opencode":
+        args = [executable, "run", "--format", "json", "--dir", str(task.cwd)]
+        if task.model is not None:
+            args.extend(("--model", task.model))
+        # OpenCode's --variant is provider-specific and is not the shared
+        # effort contract. Reject effort above rather than guessing a mapping.
+        args.extend(("--", task.prompt))
     else:
         args = [executable, "-p", "--output-format", adapter.output_format]
         if task.model is not None:

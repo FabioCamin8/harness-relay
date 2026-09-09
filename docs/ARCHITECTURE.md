@@ -33,7 +33,7 @@ A task identifies a supported enabled worker, prompt, source repository, exact s
 
 The adapter constructs native argv from validated inputs; task text is data, not shell syntax. Honor supported native headless interfaces and existing authentication. Unexpected interactive/auth requirements produce blocked evidence rather than a login flow or permission escalation.
 
-Current workers are Codex, Claude Code, and AGY. OpenCode joins the same static adapter contract in PR-7. A worker always means its native process, never a provider API or another harness used as a proxy.
+Current workers are Codex, Claude Code, AGY, and OpenCode. OpenCode uses its native `run --format json` command. A worker always means its native process, never a provider API or another harness used as a proxy.
 
 ## Workspace ownership
 

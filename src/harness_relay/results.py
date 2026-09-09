@@ -289,6 +289,8 @@ def _event_outcome(
     event_type = event.get("type")
     subtype = event.get("subtype")
     if isinstance(event_type, str):
+        if adapter == "opencode" and event_type == "step_finish":
+            return "success"
         if event_type in {"turn.failed", "error", "failed", "task.failed"}:
             return "failure"
         if event_type in {"turn.completed", "task.completed", "completed"}:
@@ -343,6 +345,12 @@ def _claims(events: Iterable[Mapping[str, Any]]) -> Iterable[dict[str, str]]:
         item = event.get("item")
         if isinstance(item, Mapping):
             for claim in _claims((item,)):
+                if claim["text"] not in seen:
+                    seen.add(claim["text"])
+                    yield claim
+        part = event.get("part")
+        if isinstance(part, Mapping):
+            for claim in _claims((part,)):
                 if claim["text"] not in seen:
                     seen.add(claim["text"])
                     yield claim

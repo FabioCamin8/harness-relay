@@ -1,12 +1,12 @@
 # Compatibility and evidence
 
-Status at cumulative package code candidate `04c5d43`, 2026-09-08: 78/78 source tests pass on Debian GNU/Linux 13, and its installed wheel passes 78/78 outside the checkout on CPython 3.13.5 as UID 65534 and CPython 3.9.25. Public artifact scans, archive validation, six hosted exact-head checks, and independent review pass. Maintainer review and merge remain pending. The earlier `7afa87f` artifact supplies the separately recorded live OpenCode-to-Codex repository edit with independent validation.
+Status at the PR-7 implementation base `2ceeb96`, 2026-09-09: the preceding package candidate recorded 78/78 source tests and installed-wheel evidence. PR-7 adds offline OpenCode worker coverage; no live OpenCode worker inference is claimed. Maintainer review and merge remain pending. The earlier `7afa87f` artifact supplies the separately recorded live OpenCode-to-Codex repository edit with independent validation.
 
 ## Intended support
 
 | Component | Intended role | Initial status / boundary |
 | --- | --- | --- |
-| OpenCode 1.18.29 | Optional caller integration; worker planned in PR-7 | Live OpenCode-to-Codex typed delegation passed. Native OpenCode worker execution is not yet implemented. |
+| OpenCode 1.18.29 | Optional caller integration and native local worker | Offline fake-CLI coverage verifies `opencode run --format json --dir PATH [--model VALUE] -- PROMPT`, JSON event classification, same-harness execution, and explicit unsupported effort/version failures. No live worker task or subscription is verified. |
 | Codex CLI 0.153.4 | Native local worker | Offline adapter contract and one live isolated repository edit passed. The passing writable run explicitly selected `workspace-write`; the user's inherited read-only default correctly produced no edit and failed independent validation. |
 | Claude Code 2.1.104 | Native local worker | Offline adapter contract verified for `claude -p --output-format stream-json` with optional model/effort; no live task or subscription verified. |
 | AGY / Antigravity 1.1.27 | Native local worker | Offline adapter contract verified for `agy -p --output-format stream-json` with optional model/effort; no live task verified. Text-only evidence would not certify repository/browser capability. |
@@ -31,8 +31,9 @@ Maintain separate labels for detected, enabled, config-valid, and live-verified 
 
 ## Primary implementation references
 
-Consulted during planning on 2026-09-07; re-check against the version actually installed before implementation. These links are external interface references, not evidence that HarnessRelay implements them.
+Consulted and re-checked against the installed versions on 2026-09-09. These links are external interface references, not evidence that HarnessRelay implements them.
 
+- [OpenCode CLI](https://opencode.ai/docs/cli/): `run`, raw JSON events, `--model`, `--agent`, `--format`, `--dir`, and native permission behavior.
 - [OpenCode configuration](https://opencode.ai/docs/config/): JSON/JSONC, scopes, and effective configuration.
 - [OpenCode MCP servers](https://opencode.ai/docs/mcp-servers/): local integration surface.
 - [Codex non-interactive mode](https://developers.openai.com/codex/non-interactive-mode): native execution and structured output.

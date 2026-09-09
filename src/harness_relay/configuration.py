@@ -56,6 +56,13 @@ ADAPTER_REGISTRY = (
         frozenset(("low", "medium", "high")),
         "stream-json",
     ),
+    AdapterSpec(
+        "opencode",
+        "opencode",
+        ("1.18.29",),
+        frozenset(),
+        "json",
+    ),
 )
 ADAPTERS_BY_NAME = {adapter.name: adapter for adapter in ADAPTER_REGISTRY}
 SUPPORTED_ADAPTERS = tuple(adapter.name for adapter in ADAPTER_REGISTRY)

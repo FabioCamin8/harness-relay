@@ -10,9 +10,9 @@
     "workers": {
       "type": "object",
       "additionalProperties": false,
-      "propertyNames": {"enum": ["codex", "claude", "agy"]},
+      "propertyNames": {"enum": ["codex", "claude", "agy", "opencode"]},
       "patternProperties": {
-        "^(codex|claude|agy)$": {
+        "^(codex|claude|agy|opencode)$": {
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -29,7 +29,7 @@
     "roles": {
       "type": "object",
       "propertyNames": {"pattern": "^[A-Za-z][A-Za-z0-9_-]{0,63}$"},
-      "additionalProperties": {"type": "string", "enum": ["codex", "claude", "agy"]}
+      "additionalProperties": {"type": "string", "enum": ["codex", "claude", "agy", "opencode"]}
     },
     "paths": {
       "type": "object",
