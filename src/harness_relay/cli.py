@@ -140,6 +140,12 @@ def build_parser() -> argparse.ArgumentParser:
     doctor.add_argument("--relay-config", "--config", dest="relay_config", type=Path)
     doctor.add_argument("--json", action="store_true", help="emit machine-readable JSON")
 
+    worker_list = commands.add_parser(
+        "list", help="list supported workers and their local detection status"
+    )
+    worker_list.add_argument("--relay-config", "--config", dest="relay_config", type=Path)
+    worker_list.add_argument("--json", action="store_true", help="emit machine-readable JSON")
+
     mcp = commands.add_parser("mcp", help="run the bounded MCP server")
     mcp.add_argument("--relay-config", "--config", dest="relay_config", type=Path)
     mcp.add_argument("--stdio", action="store_true", help="serve newline-delimited JSON-RPC on stdio")
@@ -183,6 +189,23 @@ def main(argv: Sequence[str] | None = None) -> int:
                 for name, item in report["workers"].items():
                     print(f"{name}: enabled={item['enabled']} detected={item['detected']} version={item['version'] or '-'}")
             return 1 if any(item["enabled"] and item["detected"] is False for item in report["workers"].values()) else 0
+        if args.command == "list":
+            user_paths = UserPaths.from_environment()
+            report = diagnose(load_config(args.relay_config or user_paths.config_file))
+            if args.json:
+                print(json.dumps(report, ensure_ascii=False, sort_keys=True))
+            else:
+                for name, item in report["workers"].items():
+                    detected = item["detected"]
+                    detected_text = "not-probed" if detected is None else str(detected).lower()
+                    version = item["version"] or "-"
+                    version_status = item["version_status"] or "not-probed"
+                    print(
+                        f"{name}: supported={str(item['supported']).lower()} "
+                        f"enabled={str(item['enabled']).lower()} detected={detected_text} "
+                        f"version={version} version_status={version_status}"
+                    )
+            return 0
         if args.command == "mcp":
             if not args.stdio:
                 parser.error("mcp currently requires --stdio")

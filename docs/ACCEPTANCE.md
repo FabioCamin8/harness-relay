@@ -40,6 +40,10 @@ Offline fake executables exercised the pinned argv/output contracts for Codex CL
 
 The PR-7 offline additions verify OpenCode 1.18.29 discovery metadata, shell-free `run --format json --dir` argv, model passthrough, native JSON `text`/`step_finish` success and `error` failure classification, claim extraction, unsupported version/effort rejection, one-call/no-fallback behavior, and OpenCode-to-OpenCode execution without the Relay re-entry marker. Installed `opencode --help`, `opencode run --help`, and `opencode --version` were checked on Debian GNU/Linux 13 on 2026-09-09. The primary [OpenCode CLI documentation](https://opencode.ai/docs/cli/) describes `run` as non-interactive, `--format json` as raw JSON events, and the tested `--model`, `--agent`, `--dir`, and `--auto` options. No live OpenCode worker inference was run; native auth, provider, model, tools, MCPs, skills, permissions, and internal subagents remain OpenCode-owned.
 
+### PR-8 evidence
+
+The PR-8 offline additions verify `list` reports every supported worker without probing disabled entries, and the generic MCP `delegate` operation requires one explicit enabled worker, rejects missing/unknown/disabled workers, dispatches exactly that worker without fallback, and retains managed-worktree source preservation. Adapter-specific `delegate_<worker>` tools remain available for enabled workers. The alpha deliberately keeps managed-worktree isolation mandatory; caller-specific MCP registration for Codex, Claude Code, and AGY remains unverified, while the reversible OpenCode helper remains the only maintained caller setup mutation.
+
 ### PR-4 evidence
 
 All cumulative review findings, including process-group escape and serialized-evidence overflow cases, are corrected and independently reviewed through code candidate `5796fffe92f757a778c4e51152dc820aeda2e90d`. Its 78/78 source tests pass on Debian GNU/Linux 13. Final candidate `04c5d43e5912864a03c4f31d99d508a4acd80d00` adds only an explicit UTF-8 declaration to a fake-worker fixture; that delta received independent PASS review and its exact-head source suite also passes 78/78.

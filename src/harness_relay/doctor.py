@@ -15,6 +15,7 @@ def diagnose(config: RelayConfig, *, live_evidence: Path | None = None) -> dict[
     for name in SUPPORTED_ADAPTERS:
         worker = config.workers[name]
         item: dict[str, Any] = {
+            "supported": True,
             "enabled": worker.enabled,
             "detected": None,
             "configured": bool(worker.executable),

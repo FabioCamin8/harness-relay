@@ -1,6 +1,6 @@
 # Compatibility and evidence
 
-Status at the PR-7 implementation base `2ceeb96`, 2026-09-09: the preceding package candidate recorded 78/78 source tests and installed-wheel evidence. PR-7 adds offline OpenCode worker coverage; no live OpenCode worker inference is claimed. Maintainer review and merge remain pending. The earlier `7afa87f` artifact supplies the separately recorded live OpenCode-to-Codex repository edit with independent validation.
+Status at the PR-8 implementation base `136fadce`, 2026-09-09: the preceding package candidate recorded 78/78 source tests and installed-wheel evidence. PR-7 adds offline OpenCode worker coverage; PR-8 adds the generic caller-neutral MCP operation and inference-free worker listing. No new live worker inference or caller-specific MCP registration is claimed. Maintainer review and merge remain pending. The earlier `7afa87f` artifact supplies the separately recorded live OpenCode-to-Codex repository edit with independent validation.
 
 ## Intended support
 
@@ -18,6 +18,10 @@ Status at the PR-7 implementation base `2ceeb96`, 2026-09-09: the preceding pack
 | macOS / WSL / native Windows | Additional platforms | Unverified; do not claim support without platform-specific evidence. |
 
 A caller's chosen model must be capable of using its Relay integration. HarnessRelay does not rank models or select provider accounts.
+
+## Caller exposure
+
+The common caller surface is the local stdio process `harness-relay mcp --stdio --config PATH` and the explicit `delegate` operation. OpenCode setup/uninstall is verified as a reversible helper. Codex, Claude Code, and AGY may register that process through their own native MCP or extension mechanisms, but caller-side registration syntax and behavior are not verified here; no caller configuration is mutated for them.
 
 Each local worker owns its authentication and upstream routing. An existing auth file is not proof of entitlement or a live session. Do not infer billing, subscription policy compliance, quota, or runtime capability from discovery alone. Discovery labels selected executable versions `detected-unverified`; the offline PR-3 adapter contract does not promote them to live-verified.
 
