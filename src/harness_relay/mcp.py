@@ -108,7 +108,21 @@ class McpServer:
             self._write(self._error(request_id, -32601, "method not found"))
 
     def _tools(self) -> list[dict[str, Any]]:
-        tools = [self._tool(f"delegate_{worker.name}", "Run a bounded native worker", self._delegate_schema()) for worker in self.config.enabled_workers]
+        tools = [
+            self._tool(
+                "delegate",
+                "Run one explicitly selected enabled native worker",
+                self._delegate_schema(include_worker=True),
+            )
+        ]
+        tools.extend(
+            self._tool(
+                f"delegate_{worker.name}",
+                "Run a bounded native worker",
+                self._delegate_schema(),
+            )
+            for worker in self.config.enabled_workers
+        )
         run_schema = {"type": "object", "properties": {"run_id": {"type": "string", "pattern": RUN_ID.pattern}}, "required": ["run_id"], "additionalProperties": False}
         tools.extend((self._tool("run_status", "Inspect an in-process or retained run", run_schema), self._tool("cancel_run", "Cancel an in-process run", run_schema)))
         return tools
@@ -118,7 +132,7 @@ class McpServer:
         return {"name": name, "description": description, "inputSchema": schema}
 
     @staticmethod
-    def _delegate_schema() -> dict[str, Any]:
+    def _delegate_schema(*, include_worker: bool = False) -> dict[str, Any]:
         validation = {
             "type": "object",
             "properties": {
@@ -133,7 +147,30 @@ class McpServer:
             "required": ["argv"],
             "additionalProperties": False,
         }
-        return {"type": "object", "properties": {"prompt": {"type": "string", "minLength": 1, "maxLength": 65536}, "repository": {"type": "string", "minLength": 1}, "base_sha": {"type": "string", "minLength": 4, "maxLength": 64}, "read_only": {"type": "boolean"}, "timeout": {"type": "number", "exclusiveMinimum": 0, "maximum": 3600}, "model": {"type": "string", "minLength": 1}, "effort": {"type": "string", "minLength": 1}, "sandbox": {"enum": ["read-only", "workspace-write", "danger-full-access"]}, "validation": validation}, "required": ["prompt", "repository", "base_sha"], "additionalProperties": False}
+        properties: dict[str, Any] = {
+            "prompt": {"type": "string", "minLength": 1, "maxLength": 65536},
+            "repository": {"type": "string", "minLength": 1},
+            "base_sha": {"type": "string", "minLength": 4, "maxLength": 64},
+            "read_only": {"type": "boolean"},
+            "timeout": {"type": "number", "exclusiveMinimum": 0, "maximum": 3600},
+            "model": {"type": "string", "minLength": 1},
+            "effort": {"type": "string", "minLength": 1},
+            "sandbox": {"enum": ["read-only", "workspace-write", "danger-full-access"]},
+            "validation": validation,
+        }
+        required = ["prompt", "repository", "base_sha"]
+        if include_worker:
+            properties = {
+                "worker": {"type": "string", "minLength": 1, "maxLength": 64},
+                **properties,
+            }
+            required.insert(0, "worker")
+        return {
+            "type": "object",
+            "properties": properties,
+            "required": required,
+            "additionalProperties": False,
+        }
 
     def _call(self, request_id: Any, params: Any) -> None:
         if not isinstance(params, dict) or not isinstance(params.get("name"), str) or not isinstance(params.get("arguments", {}), dict):
@@ -169,7 +206,17 @@ class McpServer:
                     if run_id == arguments["run_id"]:
                         event.set(); canceled = True
             self._write(self._success(request_id, {"run_id": arguments["run_id"], "cancellation_requested": canceled})); return
-        worker_name = name.removeprefix("delegate_")
+        if name == "delegate":
+            worker_name = arguments["worker"]
+            worker_config = self.config.workers.get(worker_name)
+            if worker_config is None:
+                self._write(self._error(request_id, -32602, "unknown or disabled worker"))
+                return
+            if not worker_config.enabled:
+                self._write(self._error(request_id, -32602, "unknown or disabled worker"))
+                return
+        else:
+            worker_name = name.removeprefix("delegate_")
         run_id = uuid.uuid4().hex
         event = threading.Event()
         with self.lock:

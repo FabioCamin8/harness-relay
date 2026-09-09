@@ -44,6 +44,7 @@ harness-relay --version
 harness-relay setup --dry-run --non-interactive --relay-config PATH --scope global
 harness-relay setup --non-interactive --relay-config PATH --scope project
 harness-relay validate-config PATH
+harness-relay list --config PATH
 harness-relay doctor --json --config PATH
 harness-relay delegate --worker codex --prompt "Review this repository" \
   --repository PATH --base-sha COMMIT
@@ -52,7 +53,7 @@ harness-relay uninstall --scope global
 
 `setup` supports interactive and equivalent file-driven use. It writes only the user-local relay config when needed, a namespaced enabled MCP entry, a marked instruction fragment, and its ownership record. An unchanged PR-2-owned disabled entry is safely upgraded; an equivalent user-created or edited entry is not claimed. `uninstall` removes only unchanged owned content.
 
-`delegate` runs one enabled worker directly and prints normalized JSON. MCP exposes enabled workers only and requires an explicit repository/base commit, then reserves a distinct retained worktree. Its typed validation argument is shell-free argv executed independently in that worktree. Status/cancel remain responsive and timeout/cancel stop the owned process group. `doctor` probes versions only for enabled workers and never calls inference. Native settings and internal subagents remain intact; HarnessRelay recursion is refused. A writable Codex task must explicitly request `sandbox: "workspace-write"` when the user's native default is read-only.
+`list` and `doctor` use the same read-only, inference-free discovery report. `list` shows every statically supported worker plus its enabled, detected, and version status; disabled workers are marked `not-probed`. `delegate` runs one explicitly named enabled worker and prints normalized JSON. MCP always exposes the generic `delegate` operation, while `delegate_<worker>` tools remain available for enabled workers as a compatibility surface. Every delegation requires an explicit repository/base commit and reserves a distinct retained worktree; direct mode is intentionally not part of the alpha. Its typed validation argument is shell-free argv executed independently in that worktree. Status/cancel remain responsive and timeout/cancel stop the owned process group. `doctor` probes versions only for enabled workers and never calls inference. Native settings and internal subagents remain intact; HarnessRelay recursion is refused. A writable Codex task must explicitly request `sandbox: "workspace-write"` when the user's native default is read-only.
 
 The relay config is strict JSON, versioned at `1`, and defaults every worker to disabled:
 
@@ -96,6 +97,21 @@ Keep the current installation unchanged as rollback. Install a reviewed wheel in
 | [Development workflow](docs/WORKFLOW.md) | Sol coordination/review, one Luna implementation writer, and escalation boundaries. |
 
 OpenCode setup is an optional reversible caller integration. Do not install this candidate over a working environment during review.
+
+## Caller integrations
+
+The caller remains the orchestrator. Register the local MCP server through the caller's own documented MCP or extension mechanism, using the installed executable and separate argv values:
+
+```text
+harness-relay mcp --stdio --config PATH
+```
+
+After the MCP handshake, call `delegate` with `worker`, `prompt`, `repository`, and `base_sha`; add only explicit timeout, validation, or native options. The selected worker must be enabled, and Relay always uses a retained worktree.
+
+- OpenCode: `setup` can add the namespaced MCP entry and marked instructions reversibly. Its local MCP integration is the only caller setup helper maintained here.
+- Codex, Claude Code, and AGY: expose the same command through each harness's native MCP or extension mechanism when supported by the installed version. HarnessRelay does not write their configuration or invent caller-specific syntax; the caller-side registration is not verified by this package.
+
+These integrations expose one generic Relay delegation operation. They do not add planning, routing, retries, fallback, or a second orchestrator.
 
 ## License and affiliation
 

@@ -61,7 +61,9 @@ The schema and implementation validator must agree; validate nested types, not o
 
 ## MCP and lifecycle
 
-The alpha server uses newline-delimited JSON-RPC stdio and MCP `2025-11-25` only. It returns the supported version rather than echoing an unsupported client request. Logs cannot share protocol stdout. Typed tools expose only enabled adapters and runtime validation enforces their declared schemas.
+The alpha server uses newline-delimited JSON-RPC stdio and MCP `2025-11-25` only. It returns the supported version rather than echoing an unsupported client request. Logs cannot share protocol stdout. It exposes one generic `delegate` tool that requires an explicit worker, plus `delegate_<worker>` compatibility tools for enabled adapters; runtime validation rejects missing, unknown, and disabled workers before scheduling. No tool chooses a worker or falls back to another one.
+
+Every alpha delegation reserves a managed worktree from the requested repository and base revision. There is no direct `isolate=false` mode: keeping isolation mandatory preserves the source checkout and keeps the public contract small while direct-mode safety is not independently justified.
 
 Use the tested OpenCode client's deadlines and supported cancellation behavior. Long work must not make cancellation/status permanently inaccessible or leave unmanaged child processes after client disconnect. Prefer a small bounded subprocess implementation; this does not authorize a queue, scheduler, database, or separate persistent service. Report cancellation/timeout and any unconfirmed remote termination honestly.
 
@@ -72,6 +74,10 @@ The current Python MCP SDK requires Python 3.10 or newer while HarnessRelay supp
 The runner marks every Relay-spawned process with an execution-role environment value. Relay entry points reject that value. The check does not inspect harness names, so Codex-to-Codex and OpenCode-to-OpenCode are valid while worker-to-Relay recursion is refused. This is a cooperative boundary, not protection against a malicious privileged process.
 
 Native harness-internal tools and subagents remain governed by native policy. The caller need not route its own work through Relay; a delegated task has one selected worker and an explicit workspace boundary.
+
+## Caller integration
+
+Any caller that supports local MCP or an equivalent native extension can launch `harness-relay mcp --stdio --config PATH` and call `delegate` with an explicit worker. OpenCode has the maintained optional `setup`/`uninstall` helper. Codex, Claude Code, and AGY retain ownership of their caller configuration; this repository provides the common process command and operation contract, not unverified caller-specific configuration files or orchestration helpers.
 
 ## Optional remote capabilities
 
