@@ -36,6 +36,10 @@ G05 through G08 passed local lead review at code candidate `8344fc33d048183065c9
 
 Offline fake executables exercised the pinned argv/output contracts for Codex CLI 0.153.4, Claude Code 2.1.104, and AGY 1.1.27, including explicit overrides, structured success/failure, authentication and denial codes, empty/malformed output, missing executable, timeout, cancellation, nested schema rejection, and committed/staged/unstaged/untracked/rename/delete/validation Git evidence. Installed help and the primary vendor pages in the compatibility document were checked on 2026-09-08. No live native task, subscription/account capability, G14 workflow, or cross-platform claim is made. Maintainer review of stacked PR [#3](https://github.com/FabioCamin8/harness-relay/pull/3) remains pending.
 
+### PR-7 evidence
+
+The PR-7 offline additions verify OpenCode 1.18.29 discovery metadata, shell-free `run --format json --dir` argv, model passthrough, native JSON `text`/`step_finish` success and `error` failure classification, claim extraction, unsupported version/effort rejection, one-call/no-fallback behavior, and OpenCode-to-OpenCode execution without the Relay re-entry marker. Installed `opencode --help`, `opencode run --help`, and `opencode --version` were checked on Debian GNU/Linux 13 on 2026-09-09. The primary [OpenCode CLI documentation](https://opencode.ai/docs/cli/) describes `run` as non-interactive, `--format json` as raw JSON events, and the tested `--model`, `--agent`, `--dir`, and `--auto` options. No live OpenCode worker inference was run; native auth, provider, model, tools, MCPs, skills, permissions, and internal subagents remain OpenCode-owned.
+
 ### PR-4 evidence
 
 All cumulative review findings, including process-group escape and serialized-evidence overflow cases, are corrected and independently reviewed through code candidate `5796fffe92f757a778c4e51152dc820aeda2e90d`. Its 78/78 source tests pass on Debian GNU/Linux 13. Final candidate `04c5d43e5912864a03c4f31d99d508a4acd80d00` adds only an explicit UTF-8 declaration to a fake-worker fixture; that delta received independent PASS review and its exact-head source suite also passes 78/78.

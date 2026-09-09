@@ -220,6 +220,24 @@ class Pr4Test(unittest.TestCase):
             )
             self.assertTrue(result["process"]["started"])
 
+    def test_opencode_same_harness_worker_is_allowed(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            fake = root / "opencode"
+            fake.write_text(
+                f"#!{sys.executable}\n"
+                "print('{\"type\":\"step_finish\",\"part\":{}}')\n",
+                encoding="utf-8",
+            )
+            fake.chmod(0o755)
+            result = run_task(
+                DetectedWorker("opencode", fake, "1.18.29", "test"),
+                TaskRequest("same-harness task", root),
+                environment={REENTRY_ENV: "0"},
+            )
+            self.assertTrue(result["process"]["started"])
+            self.assertEqual(result["native"]["outcome"], "success")
+
     def test_doctor_is_read_only_inference_free_and_skips_disabled(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory); marker = root / "called"; fake = root / "codex"

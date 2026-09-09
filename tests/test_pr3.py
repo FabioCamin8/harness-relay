@@ -35,6 +35,7 @@ class Pr3Test(unittest.TestCase):
                 ("codex", "0.153.4"),
                 ("claude", "2.1.104"),
                 ("agy", "1.1.27"),
+                ("opencode", "1.18.29"),
             ):
                 with self.subTest(name=name):
                     worker = DetectedWorker(name, Path(f"/bin/{name}"), version, "test")
@@ -48,7 +49,13 @@ class Pr3Test(unittest.TestCase):
                     self.assertEqual(invocation.argv[-1], prompt)
                     self.assertEqual(invocation.argv[-2], "--")
                     self.assertNotIn("shell=True", invocation.argv)
-                    self.assertIn("--output-format", invocation.argv) if name != "codex" else self.assertIn("--json", invocation.argv)
+                    if name == "codex":
+                        self.assertIn("--json", invocation.argv)
+                    elif name == "opencode":
+                        self.assertIn("--format", invocation.argv)
+                        self.assertIn("json", invocation.argv)
+                    else:
+                        self.assertIn("--output-format", invocation.argv)
 
         with self.assertRaises(UnsupportedOverrideError):
             build_invocation(
@@ -59,6 +66,16 @@ class Pr3Test(unittest.TestCase):
             build_invocation(
                 DetectedWorker("agy", Path("/bin/agy"), "99.0.0", "test"),
                 TaskRequest(prompt="x", cwd=Path("/tmp")),
+            )
+        with self.assertRaisesRegex(UnsupportedOverrideError, "unsupported opencode version"):
+            build_invocation(
+                DetectedWorker("opencode", Path("/bin/opencode"), "99.0.0", "test"),
+                TaskRequest(prompt="x", cwd=Path("/tmp")),
+            )
+        with self.assertRaises(UnsupportedOverrideError):
+            build_invocation(
+                DetectedWorker("opencode", Path("/bin/opencode"), "1.18.29", "test"),
+                TaskRequest(prompt="x", cwd=Path("/tmp"), effort="high"),
             )
 
     def test_adapter_native_flags_preserve_defaults_and_only_explicit_overrides(self) -> None:
@@ -80,6 +97,27 @@ class Pr3Test(unittest.TestCase):
         )
         self.assertNotIn("--bare", claude.argv)
         self.assertNotIn("--strict-mcp-config", claude.argv)
+        opencode = build_invocation(
+            DetectedWorker("opencode", Path("/bin/opencode"), "1.18.29", "test"),
+            TaskRequest(prompt="x", cwd=Path("/tmp"), model="provider/model"),
+        )
+        self.assertEqual(
+            opencode.argv,
+            (
+                "/bin/opencode",
+                "run",
+                "--format",
+                "json",
+                "--dir",
+                "/tmp",
+                "--model",
+                "provider/model",
+                "--",
+                "x",
+            ),
+        )
+        self.assertNotIn("--auto", opencode.argv)
+        self.assertNotIn("--variant", opencode.argv)
         codex_default = build_invocation(
             DetectedWorker("codex", Path("/bin/codex"), "0.153.4", "test"),
             TaskRequest(prompt="x", cwd=Path("/tmp")),
@@ -96,6 +134,7 @@ class Pr3Test(unittest.TestCase):
             ("codex", "0.153.4"),
             ("claude", "2.1.104"),
             ("agy", "1.1.27"),
+            ("opencode", "1.18.29"),
         ):
             with self.subTest(name=name):
                 invocation = build_invocation(
@@ -262,6 +301,14 @@ class Pr3Test(unittest.TestCase):
                 "success",
                 "agy claim",
             ),
+            (
+                "opencode",
+                "1.18.29",
+                '{"type":"text","part":{"type":"text","text":"opencode claim"}}\n'
+                '{"type":"step_finish","part":{"type":"step-finish"}}\n',
+                "success",
+                "opencode claim",
+            ),
         )
         for name, version, output, outcome, claim in fixtures:
             with self.subTest(name=name):
@@ -276,6 +323,46 @@ class Pr3Test(unittest.TestCase):
                     self.assertIn(claim, json.dumps(result["native"]["claims"]))
                     self.assertEqual(result["evidence"]["stderr"], "warning on stderr")
                     self.assertNotEqual(result["native"]["outcome"], "malformed_output")
+
+    def test_opencode_fake_cli_success_failure_and_no_fallback(self) -> None:
+        for output, returncode, expected in (
+            (
+                '{"type":"text","part":{"type":"text","text":"done"}}\n'
+                '{"type":"step_finish","part":{"type":"step-finish"}}\n',
+                0,
+                "success",
+            ),
+            (
+                '{"type":"error","error":{"name":"ProviderError"}}\n',
+                1,
+                "failure",
+            ),
+        ):
+            with self.subTest(expected=expected), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                calls = root / "calls"
+                fake = root / "opencode"
+                fake.write_text(
+                    f"#!{sys.executable}\n"
+                    "import os\n"
+                    "from pathlib import Path\n"
+                    "calls = Path(os.environ['CALLS'])\n"
+                    "calls.write_text(calls.read_text() + '1' if calls.exists() else '1')\n"
+                    f"print({output!r}, end='')\n"
+                    f"raise SystemExit({returncode})\n",
+                    encoding="utf-8",
+                )
+                fake.chmod(0o755)
+                result = run_task(
+                    DetectedWorker("opencode", fake, "1.18.29", "test"),
+                    TaskRequest(prompt="ignored", cwd=root, timeout=1),
+                    environment={"CALLS": str(calls)},
+                )
+                self.assertEqual(result["native"]["outcome"], expected)
+                self.assertEqual(result["process"]["exit_code"], returncode)
+                self.assertEqual(calls.read_text(encoding="utf-8"), "1")
+                self.assertEqual(result["invocation"]["argv"][-2:], ["--", "[TASK_PROMPT]"])
+                validate_result(result)
 
     def test_fake_executable_receives_argv_and_cwd_without_shell_interpolation(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

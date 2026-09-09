@@ -49,7 +49,7 @@
       "required": ["id", "worker", "worker_version"],
       "properties": {
         "id": {"type": "string", "minLength": 1},
-        "worker": {"type": "string", "enum": ["codex", "claude", "agy"]},
+        "worker": {"type": "string", "enum": ["codex", "claude", "agy", "opencode"]},
         "worker_version": {"type": "string", "minLength": 1}
       }
     },
