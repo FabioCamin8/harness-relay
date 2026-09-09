@@ -1,6 +1,6 @@
 # Development workflow: Sol, Luna, and Astra
 
-These names describe the maintainer's development roles, not dependencies or mandatory models in HarnessRelay. The product remains one OpenCode master with a user-selected model and native local workers.
+These names describe repository development roles, not HarnessRelay runtime roles. The calling harness remains the orchestrator.
 
 ## Authority
 
@@ -13,7 +13,7 @@ After the initial documentation bootstrap, implementation goes through branches/
 ## Sol: lead, coordinator, and reviewer
 
 1. Read AGENTS.md, PLAN.md, architecture, acceptance, and compatibility documents. Inspect live repository state, branch/HEAD, open PRs, and checks rather than trusting an old handoff.
-2. Audit the plan against the universal native-harness objective. Remove unnecessary complexity; propose only evidence-backed amendments. Do not implement product code while acting as the independent reviewer.
+2. Audit the plan against the universal native-harness objective. Remove unnecessary complexity and make only evidence-backed changes.
 3. Select the next uncompleted work package. Resolve scope, dependencies, permitted source reuse, and relevant gate IDs. A source/access/license ambiguity blocks the affected import, not unrelated read-only investigation.
 4. Assign one Luna XHigh implementation writer at a time with a bounded packet. Do not spawn nested agents or claim an invocation that did not occur.
 5. Review the full diff and resulting files at Luna's exact candidate SHA. Rerun pertinent offline tests, inspect the installed-package/config behavior where relevant, and independently examine failure cases. Do not accept a summary, test count, or doctor pass as proof of untested capabilities.
@@ -61,7 +61,7 @@ Known limitations and unresolved blockers:
 
 ## Review standards
 
-The critical questions are whether the master model remains user-owned, workers really run natively, setup is reversible, result evidence is truthful, work is preserved under failure, and disabled/optional capabilities remain non-required.
+The critical questions are whether the caller remains in control, workers run natively, setup is reversible, result evidence is truthful, work survives failure, and optional capabilities remain optional.
 
 Require minimal, reproducible evidence. G01-G14 in docs/ACCEPTANCE.md define the planned gates. Do not mark later gates passed just because the current work package intentionally omits them.
 
@@ -69,4 +69,4 @@ No screenshots, logs, cookies, auth state, account details, private host address
 
 ## Current assignment state
 
-PR-2 through PR-5 are implemented as linked stacked PRs. Package code candidate `04c5d43` has exact-SHA source, installed-artifact, hosted-CI, and independent review evidence; any later code change requires focused regression and delta review. Maintainer authority is still required for review, merge, tag, publication, deployment, or migration.
+PR-1 through PR-5 are merged at `8d54d4b`. PR-6 realigns the contract, PR-7 adds OpenCode worker symmetry, and PR-8 minimizes the universal caller surface. Maintainer authority remains required for merge, tag, publication, deployment, or migration.

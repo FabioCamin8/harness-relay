@@ -12,7 +12,7 @@ Normal CI uses fake native executables, temporary homes/configs, and disposable 
 | --- | --- | --- |
 | G01 — Public source | PR-1 | Export contains only permitted source; no private history, secrets, runtime logs, browser state, host identities, or personal config. License/provenance decision and required notices recorded. |
 | G02 — Portable package | PR-1 | Built package installs and runs under a temporary non-root home; packaged resources resolve without a source checkout; no hard-coded maintainer paths, model/provider, vault, retrieval MCP, or remote host is required. |
-| G03 — Config contract | PR-2 | Strict version/types, disabled default, executable override, missing/unknown adapter, invalid role reference, and unsupported config version produce predictable results. No auth/model/provider config is silently rewritten. |
+| G03 — Config contract | PR-2 | Strict version/types, disabled default, executable override, missing/unknown adapter, compatibility role validation, and unsupported config version produce predictable results. No caller/auth/model/provider config is silently rewritten. |
 | G04 — Setup ownership | PR-2 | Dry-run does not write; repeated setup does not duplicate; JSON/JSONC and supported scope conflicts are handled; interrupted writes are recoverable; uninstall preserves unrelated and subsequently edited content. |
 | G05 — Native invocation | PR-3 | Each adapter receives correct argv/cwd/stdin and retains native config; task text is not shell syntax; unsupported overrides are rejected; another provider is never invoked as fallback. |
 | G06 — Output and errors | PR-3 | Native structured success/failure, valid exit with empty output, malformed/truncated output, auth-required, denied tool, missing executable, and unsupported version are classified without English-keyword heuristics. |
@@ -67,7 +67,7 @@ In an environment independent of the maintainer's live setup, use OpenCode and o
 5. Verify the requested change and independently executed validation in the normalized result.
 6. Confirm the source checkout is unchanged, no merge occurred, and logs/worktree evidence remain available.
 7. Repeat setup and confirm no duplicate integration or unrelated changes.
-8. Demonstrate changing the master model through OpenCode without changing worker adapters/config. Offline config-independence tests are mandatory; a second live-model run is recorded separately and requires available authorized access. Missing live access is not fabricated as a pass.
+8. Demonstrate changing the caller model through OpenCode without changing worker adapters/config. Offline config-independence tests are mandatory; a second live-model run is recorded separately and requires available authorized access. Missing live access is not fabricated as a pass.
 9. Uninstall the integration and verify preservation of pre-existing configuration, native auth, work, and artifacts.
 
 Record precisely which live portions ran. If live model-switch or native-worker access is unavailable, the relevant live claim remains unverified even if offline packaging and adapter tests pass.

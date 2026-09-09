@@ -1,27 +1,27 @@
 # Architecture
 
-Design target, not an implementation claim. PLAN.md determines scope and order; this document defines boundaries shared by the five PRs.
+This document defines the universal bridge boundary. PLAN.md separates implemented behavior from planned work.
 
 ## Ownership
 
 | Concern | Owner |
 | --- | --- |
-| User interaction, planning, worker choice | OpenCode master and its user-selected model |
+| User interaction, planning, worker choice | Calling harness |
 | Provider accounts, billing, native model defaults | Each harness's existing configuration |
 | Worker reasoning, edits, native tools and subagents | Selected native harness |
 | Typed task input, process capture, workspace records, normalized results | HarnessRelay |
 | Accepting changes, merging, deployment | User or separately authorized workflow |
 | Browser profiles and remote graphical state | Optional desktop host, never the local router |
 
-HarnessRelay has no reasoning model, model catalog, provider API, authentication broker, or scoring engine. Configuration may express user preferences such as a preferred review worker. The master remains responsible for deliberately choosing a named enabled worker. A failed task is not permission to switch provider or account.
+HarnessRelay has no reasoning model, model catalog, provider API, authentication broker, scoring engine, or caller registry. The caller deliberately chooses a named enabled worker. A failed task is not permission to switch worker, model, provider, or account.
 
 ## Configuration and setup
 
-Keep one versioned JSON file for HarnessRelay. Suggested concerns are enabled adapter names, executable paths, optional role preferences, and local storage locations. The exact schema is implemented in PR-2; do not add speculative settings. The packaged JSON Schema owns standard structural validation, while the runtime validator adds representation and cross-field rules. In particular, JSON Schema treats the numeric token `1.0` as an integer; HarnessRelay requires the decoded version to be an integer value. Both layers are required, and schema validity alone is not configuration validity.
+Keep one versioned JSON file for enabled workers, executable paths, and local storage. Version-1 `roles` entries remain accepted for compatibility but have no routing behavior. The packaged schema owns structural validation; runtime validation adds representation and cross-field rules.
 
-Do not copy OpenCode's master model into this file. Retain the user's existing model selection and provider configuration. Worker model defaults also remain native. Task-level overrides are optional, explicit, and validated by the adapter.
+Do not copy caller or worker model/provider state into this file. Task-level native overrides are optional, explicit, and adapter-validated.
 
-Setup owns only its namespaced OpenCode MCP entry and marked instruction fragment. The generated MCP command includes the resolved selected relay-config path. PR-4 enables or updates a previously generated entry only when the ownership record and exact source hash agree. Equivalent user-created or edited entries remain conflicts. Setup preserves unrelated JSON/JSONC and newer user edits and uses atomic ownership records rather than whole-file restoration.
+The optional OpenCode helper owns only its namespaced MCP entry and marked instruction fragment. It preserves unrelated JSON/JSONC and newer user edits and uses atomic ownership records rather than whole-file restoration. Other callers may expose the same MCP server without entering Relay core configuration.
 
 OpenCode JSONC edits use the pinned Python-native `tree-sitter==0.23.2` and `tree-sitter-json==0.24.8` pair. Tree-sitter supplies source ranges and comments; this bounded module masks only recognized trailing commas for strict validation and rejects all other parser recovery. No external runtime, network bootstrap, or user-level parser cache is needed.
 
@@ -29,11 +29,11 @@ Official OpenCode documentation describes JSON/JSONC and layered merged configur
 
 ## Task boundary
 
-A coding task identifies a supported enabled worker, objective, source repository, exact starting revision, edit intent, constraints, acceptance criteria, evidence pointers, requested validation, and timeout. MCP and direct CLI delegation both reserve a retained managed worktree from that revision. Use paths and short evidence summaries instead of copying an entire repository through the master.
+A task identifies a supported enabled worker, prompt, source repository, exact starting revision, requested validation, native options, and timeout. MCP and direct CLI delegation reserve a retained managed worktree from that revision.
 
 The adapter constructs native argv from validated inputs; task text is data, not shell syntax. Honor supported native headless interfaces and existing authentication. Unexpected interactive/auth requirements produce blocked evidence rather than a login flow or permission escalation.
 
-Initial local worker adapters are Codex, Claude Code, and AGY, with separate evidence levels. Do not add a second OpenCode agent merely to host another model. Later native adapters use the same small static interface; arbitrary executable discovery alone does not make an adapter supported.
+Current workers are Codex, Claude Code, and AGY. OpenCode joins the same static adapter contract in PR-7. A worker always means its native process, never a provider API or another harness used as a proxy.
 
 ## Workspace ownership
 
@@ -55,7 +55,7 @@ Keep a single versioned outer result contract. It should identify task/run, work
 
 Separate native execution from acceptance. An exit code zero and a worker-written summary do not prove the objective or tests passed. Acceptance is explicitly passed, failed, or not checked; evidence distinguishes runner-executed validation from worker-reported claims. Non-applicable Git fields remain explicit for future non-repository capabilities.
 
-Parse each harness's documented structured output where available. Do not classify failure by English substrings. Empty/malformed output, tool refusal, missing auth, unsupported options, cancellation, and timeout need machine-readable distinctions. Retain raw output locally for diagnosis, but return only bounded summaries and artifact references to the master.
+Parse each harness's documented structured output where available. Do not classify failure by English substrings. Return bounded summaries and artifact references to the caller.
 
 The schema and implementation validator must agree; validate nested types, not only top-level presence. A future breaking contract change requires a version change and documented compatibility, not silently reinterpreting old runs.
 
@@ -67,11 +67,11 @@ Use the tested OpenCode client's deadlines and supported cancellation behavior. 
 
 The current Python MCP SDK requires Python 3.10 or newer while HarnessRelay supports Python 3.9. The alpha therefore implements only this bounded stdio lifecycle, without HTTP/auth transports or an SDK dependency. Later protocol support requires separate compatibility evidence.
 
-## No second master
+## Recursion boundary
 
-Workers must not invoke HarnessRelay to delegate onward. Avoid exposing delegation tools in worker contexts and implement a runner re-entry check. Test inherited configuration as well as prompt instructions. This is a cooperative architecture boundary, not protection against a fully privileged malicious process.
+The runner marks every Relay-spawned process with an execution-role environment value. Relay entry points reject that value. The check does not inspect harness names, so Codex-to-Codex and OpenCode-to-OpenCode are valid while worker-to-Relay recursion is refused. This is a cooperative boundary, not protection against a malicious privileged process.
 
-Native harness-internal tools/subagents remain enabled according to native user policy. Do not confuse those with cross-harness recursion. The master need not route every shell command through HarnessRelay; a delegated task, however, has one selected primary worker and an explicit workspace boundary.
+Native harness-internal tools and subagents remain governed by native policy. The caller need not route its own work through Relay; a delegated task has one selected worker and an explicit workspace boundary.
 
 ## Optional remote capabilities
 

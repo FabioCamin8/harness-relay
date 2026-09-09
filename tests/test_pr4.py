@@ -204,6 +204,22 @@ class Pr4Test(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "recursion"):
                 run_task(DetectedWorker("agy", fake, "1.1.27", "test"), TaskRequest("x", root), environment={REENTRY_ENV: "1"})
 
+    def test_same_harness_name_is_not_recursion(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            fake = root / "agy"
+            fake.write_text(
+                f"#!{sys.executable}\nprint('{{\"status\":\"SUCCEEDED\",\"summary\":\"ok\"}}')\n",
+                encoding="utf-8",
+            )
+            fake.chmod(0o755)
+            result = run_task(
+                DetectedWorker("agy", fake, "1.1.27", "test"),
+                TaskRequest("x", root),
+                environment={REENTRY_ENV: "0"},
+            )
+            self.assertTrue(result["process"]["started"])
+
     def test_doctor_is_read_only_inference_free_and_skips_disabled(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory); marker = root / "called"; fake = root / "codex"
