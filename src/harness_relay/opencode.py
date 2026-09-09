@@ -31,7 +31,7 @@ INSTRUCTION_START = "<!-- HARNESSRELAY MANAGED START -->"
 INSTRUCTION_END = "<!-- HARNESSRELAY MANAGED END -->"
 INSTRUCTION_TEXT = (
     f"{INSTRUCTION_START}\n"
-    "Use HarnessRelay only for explicitly delegated tasks and keep OpenCode as the master.\n"
+    "Use HarnessRelay only for explicit delegation. OpenCode remains the orchestrator.\n"
     f"{INSTRUCTION_END}\n"
 )
 

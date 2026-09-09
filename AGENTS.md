@@ -4,11 +4,11 @@ Read README.md and PLAN.md first, then the relevant architecture, acceptance, co
 
 ## Product invariants
 
-OpenCode is the only master in the first release; its model is user-selected. HarnessRelay is a deterministic delegation layer with no model of its own. Workers are native harnesses, not different models run inside one common harness.
+HarnessRelay is a native CLI-to-CLI bridge. The calling harness remains the orchestrator and chooses one configured native worker. No caller is mandatory or identified as a master. Same-harness delegation is valid.
 
 Native workers retain their own authentication, model defaults, upstream routes, permissions, MCPs, skills, and internal subagents. Do not replace them with API calls from OpenCode, centralize credentials, or change unattended permission policy. Model/effort overrides require explicit task intent and adapter support.
 
-No mandatory GLM/Z.AI, extra OpenCode worker, retrieval MCP, vault, remote desktop, Apple host, private repository, root user, or maintainer-specific path. No personal blacklist of otherwise legitimate tools.
+No mandatory model/provider, retrieval MCP, vault, remote desktop, Apple host, private repository, root user, or maintainer-specific path. No personal blacklist of otherwise legitimate tools.
 
 No hidden worker/provider fallback, automatic retry, automatic merge, nested delegation through HarnessRelay, scheduler, queue, database, dashboard, plugin marketplace, or generic workflow engine. Internal subagents belonging to the selected native harness are not prohibited nesting.
 

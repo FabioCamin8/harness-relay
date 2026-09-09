@@ -1,12 +1,12 @@
 # Implementation plan
 
-Baseline: 2026-09-08. Status: PR-1 is merged and PR-2 through PR-5 are stacked. The cumulative package code candidate is `04c5d43e5912864a03c4f31d99d508a4acd80d00`: its 78-test source suite and exact installed-wheel suites on CPython 3.13.5 as UID 65534 and CPython 3.9.25 pass, public artifact scans pass, and six hosted exact-head checks pass. Independent review passed through a complete runtime review at `5796fff` and the fixture-only delta at `04c5d43`. Maintainer review, merge, tag, publication, and operational migration remain pending. Live G14 evidence remains tied to the earlier code candidate recorded in the acceptance ledger.
+Baseline: 2026-09-09. PR-1 through PR-5 are merged at `8d54d4b`. Their cumulative 78-test source and installed-wheel evidence remains recorded in Acceptance. PR-6 through PR-8 realign the contract, complete worker symmetry, and expose the minimum universal bridge surface.
 
 ## Product contract
 
-One master: OpenCode with a model selected and configured by the user. Native local harnesses are workers, invoked through their own supported non-interactive interfaces. HarnessRelay is a deterministic delegation layer, not a second reasoning agent or provider router.
+HarnessRelay is a native CLI-to-CLI bridge for AI coding harnesses. The calling harness remains the orchestrator. It selects one configured worker; Relay translates, executes, optionally isolates, and returns evidence.
 
-Users enable supported installed harnesses and may set delegation preferences. The master chooses a named worker. Each worker owns its native model defaults, authentication, tools, skills, permissions, upstream routing, and internal subagents. No automatic fallback or cross-harness recursion through HarnessRelay.
+Any supported harness may call any configured worker, including another instance of itself. Each worker owns its native model, authentication, provider, tools, skills, permissions, MCPs, and internal subagents. A Relay-spawned worker cannot invoke Relay again. No automatic routing, fallback, or retry exists.
 
 ## Scope
 
@@ -18,7 +18,7 @@ Remote desktop and Apple capabilities are optional follow-on work. Preserve thei
 
 ## Execution model
 
-Use five small, sequential PRs. `PR-1` through `PR-5` below are work-package identifiers, not existing GitHub PR numbers. Each PR names its base SHA, candidate SHA, scope, evidence, and unverified claims. Sol leads, coordinates, and reviews; one Luna XHigh worker implements at a time; no nested agents. Astra Medium is reserved for difficult blockers or high-risk decisions. Read [the workflow](docs/WORKFLOW.md).
+PR-1 through PR-5 built and validated the alpha foundation. PR-6 through PR-8 are small sequential work packages. Each records base, candidate, scope, evidence, and omissions. Sol leads and reviews; one Luna XHigh worker implements substantial changes at a time. Read [the workflow](docs/WORKFLOW.md).
 
 The documentation bootstrap may exist on main. Subsequent implementation uses branches and PRs. No automatic merging, release tagging, deployment, or edits to the maintainer's working installation are authorized by this plan alone.
 
@@ -34,7 +34,7 @@ Work:
 - Package Python with minimal justified dependencies. Prefer a supported MCP SDK or proven parser where hand-rolled protocol/JSONC code would increase maintenance risk. Do not require zero dependencies at the expense of correctness.
 - Replace personal paths with user-owned configurable config/data/worktree locations. Separate installed source from runtime data. Package schemas as resources rather than finding them in one developer's checkout.
 - Remove required model/provider names, GLM-specific worker identity, default remote hosts, private-vault imports, and personal forbidden-tool policies.
-- Keep OpenCode as the sole master; do not add a second OpenCode worker by default. There is no model catalog or provider-auth subsystem.
+- Keep orchestration outside Relay. There is no caller registry, model catalog, or provider-auth subsystem.
 - Add a minimal offline test entry point and clean installation test. Do not install into the maintainer's live environment.
 
 Acceptance: G01 and G02 in [Acceptance](docs/ACCEPTANCE.md). A built artifact installs under a temporary non-root home, imports, and exposes only the supported `--help` and `--version` commands without a personal environment. Adapter selection and configuration are later-phase work and are outside PR-1.
@@ -46,7 +46,7 @@ Goal: enable the user's chosen local workers without taking over existing config
 Work:
 
 - Detect supported executables using explicit paths or PATH. Report missing/unsupported versions; do not silently install, upgrade, authenticate, or enable them.
-- Offer one setup flow: OpenCode integration scope, enabled workers, optional role preferences, and user-owned storage paths. Retain the existing OpenCode master model. No profile framework or mandatory worker model override.
+- Offer optional reversible OpenCode setup for enabled workers and user-owned storage paths. Do not alter OpenCode model/provider state.
 - Support `setup --dry-run`, interactive setup, and equivalent file-driven non-interactive setup. Keep our configuration in one versioned JSON format with strict types and actionable errors.
 - Manage only a namespaced MCP entry and a short, marked instruction block. Inspect effective configuration and respect JSON/JSONC, precedence, managed policy, and user changes.
 - The setup-created MCP entry remains disabled until PR-4 implements and verifies the MCP runtime. JSONC editing uses the pinned Python Tree-sitter parser pair and has no external runtime prerequisite.
@@ -101,7 +101,7 @@ Work:
 - Add concise license/notices, contribution guidance, compatibility matrix, generic examples, and release notes. Verify package entry points and bundled resources from an installed artifact, not only the source tree.
 - Run CI with fake executables, temporary homes/repositories, schema checks, package checks, and public-data/secret scans. No account credentials or paid inference in ordinary CI.
 - Run explicit low-quota live acceptance only for available authorized workers. Report absent access as not verified; do not purchase access or make authentication workarounds.
-- Prove the independent-user scenario and master-model independence in G14. A test with no tool use is not repository/browser/desktop capability evidence.
+- Prove the independent-user OpenCode-caller scenario in G14. A test with no tool use is not repository/browser/desktop capability evidence.
 - Prepare the `v0.1.0-alpha.1` release candidate. Publish/tag only with separate maintainer authorization. Do not move or reuse an existing release tag.
 - Propose migration of the maintainer's setup to a pinned public-project release, keeping the existing installation as rollback. No parallel long-lived fork; no automatic live migration in this work package.
 
@@ -125,4 +125,18 @@ Sol can request a narrowly justified amendment when implementation evidence cont
 
 No automatic fallback/merge/retry, provider proxy, central secrets store, model ranking, token/cost optimizer, scheduler, queue, database, dashboard, shared-memory service, global skill synchronization, or self-updating harness installer.
 
-Remote desktop, Apple tooling, additional master applications, Gemini and other new adapters, and broader platforms require separate evidence-driven follow-ups. Do not invent deadlines or block the local core on optional infrastructure.
+Remote desktop, Apple tooling, additional caller helpers, Gemini and other new adapters, and broader platforms require separate evidence-driven follow-ups. Do not block the local core on optional infrastructure.
+
+## PR-6 through PR-8
+
+### PR-6 — Realign and simplify
+
+Replace the mandatory-OpenCode architecture with the universal bridge contract. Keep OpenCode setup as an optional helper. Preserve version-1 `roles` parsing for compatibility but do not use or promote it as routing. Add regression proof for same-harness delegation and execution-role recursion refusal.
+
+### PR-7 — Complete worker symmetry
+
+Add OpenCode as a native worker through its verified non-interactive CLI. Use the existing adapter contract, fake-CLI tests, explicit version/override failure, and no fallback. Do not call a provider API or another harness as proxy.
+
+### PR-8 — Universal bridge surface
+
+Prefer one generic `delegate` operation across CLI and MCP while retaining adapter-specific compatibility tools if removal adds churn. Add `list`; keep `doctor`, `delegate`, and `mcp`. Keep managed-worktree isolation mandatory for alpha if direct mode weakens source preservation. Document minimal caller integrations without building orchestrators.

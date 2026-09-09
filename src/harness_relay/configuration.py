@@ -1,8 +1,7 @@
 """Strict, versioned HarnessRelay configuration.
 
-The relay configuration intentionally contains worker selection and local
-paths only.  OpenCode's model/provider configuration and native worker
-authentication never belong in this file.
+Relay configuration contains workers and local paths. Caller and worker
+model/provider configuration and native authentication never belong here.
 """
 
 from __future__ import annotations
@@ -84,6 +83,7 @@ class RelayConfig:
 
     version: int
     workers: dict[str, WorkerConfig]
+    # Accepted for version-1 config compatibility. Relay does not route by role.
     roles: dict[str, str]
     paths: dict[str, str]
 

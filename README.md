@@ -1,6 +1,6 @@
 # HarnessRelay
 
-Native harness delegation for OpenCode. Bring your own orchestrator model, keep your native agents, and delegate bounded tasks with structured results.
+HarnessRelay is a native CLI-to-CLI bridge for AI coding harnesses. The calling harness remains the orchestrator.
 
 **Status: `v0.1.0-alpha.1` release candidate under maintainer review.** The package provides strict worker configuration, reversible setup/uninstall, offline-tested native adapters, managed worktrees, MCP stdio lifecycle handling, and read-only doctor diagnostics. G14 verified one live OpenCode-to-Codex repository edit with independent validation; broader capabilities remain unverified.
 
@@ -12,33 +12,29 @@ Install the built wheel with Python 3.9 or newer. JSONC setup uses the pinned, P
 python -m pip install harness-relay
 ```
 
-## One master, native workers
+## Any caller, native workers
 
 ```text
-User
+Any calling harness
   |
   v
-OpenCode — the only master; user-selected model
-  |
-  v
-HarnessRelay — local typed delegation, not another agent
+HarnessRelay — translate, execute, isolate, return
   |
   +-- Codex CLI        -> native configuration and agent loop
   +-- Claude Code      -> native configuration and agent loop
   +-- AGY              -> native configuration and agent loop
-  +-- additional explicitly supported local adapters
-  `-- optional remote capabilities, when configured and verified
+  `-- OpenCode          -> planned in PR-7
 ```
 
 HarnessRelay standardizes task invocation, workspace handling, lifecycle, and results. It does not standardize away each harness's strengths.
 
-OpenCode owns planning and delegation decisions. Users choose its model through OpenCode, without changing worker adapters. Each worker retains its native model defaults, authentication, permissions, MCPs, skills, and internal subagents. HarnessRelay does not manage provider credentials, subscription accounts, billing, or upstream proxies.
+The caller owns planning, task selection, and worker choice. Any supported harness may call any configured worker, including another instance of itself. Each worker retains its native model, authentication, provider, permissions, tools, MCPs, skills, and internal subagents. HarnessRelay does not manage those settings.
 
-The first release has no mandatory GLM/Z.AI provider, second OpenCode worker, shared vault, retrieval server, desktop host, or Apple host. One supported local worker alongside OpenCode is enough. Universal means model/provider independence and a small adapter contract, not automatic support for every executable on PATH.
+Relay has no mandatory caller, model, provider, shared service, or remote host. Universal means one small native adapter contract, not automatic support for every executable on PATH.
 
 ## Intended workflow
 
-Setup validates explicitly selected supported harnesses; the user chooses which to enable and reviews a minimal OpenCode integration. The master delegates a bounded task to a named worker. Writable tasks use dedicated Git worktrees. The worker returns native output, which is normalized with validation evidence. Results and useful work are retained; merging is a separate explicit decision.
+Configure explicit workers, then let the calling harness delegate a bounded task to one named worker. Writable tasks use dedicated Git worktrees. Relay returns normalized native output and validation evidence. Results and useful work are retained; merging remains separate.
 
 Available CLI surface:
 
@@ -66,19 +62,18 @@ The relay config is strict JSON, versioned at `1`, and defaults every worker to 
   "workers": {
     "codex": {"enabled": true, "executable": "/usr/local/bin/codex"}
   },
-  "roles": {"implementer": "codex"},
   "paths": {"data": "~/.local/share/harness-relay"}
 }
 ```
 
-Omit `executable` to use PATH discovery. A role must reference an enabled `codex`, `claude`, or `agy` worker. This file has no model, provider, or authentication settings; those remain owned by OpenCode and each native worker.
+Omit `executable` to use PATH discovery. Version-1 configs may retain validated `roles` entries for compatibility, but Relay never uses them for routing. This file has no caller, model, provider, or authentication settings.
 
-The packaged JSON Schema checks structural types, names, and allowed values. Runtime validation additionally enforces representation and cross-field rules, such as requiring the version token to decode as an integer and a role to refer to an enabled worker. JSON Schema's standard numeric model treats `1.0` as an integer; HarnessRelay's runtime deliberately rejects that representation.
+The packaged JSON Schema checks structural types, names, and allowed values. Runtime validation also enforces representation and cross-field rules. JSON Schema treats `1.0` as an integer; Relay deliberately requires the decoded version token to be an integer.
 
 ## Boundaries
 
 - No model API router, credential broker, automatic fallback, retries, or merges.
-- No nested delegation through HarnessRelay. Native harness-internal subagents remain allowed.
+- A Relay-spawned worker cannot invoke Relay again. Same-harness delegation and native harness-internal subagents remain allowed.
 - No scheduler, queue, database, dashboard, marketplace, or general workflow engine.
 - No silent changes to native authentication, provider routes, or unattended permission policy.
 - A worktree is not a security sandbox; actual restrictions remain with the native runtime.
@@ -93,14 +88,14 @@ Keep the current installation unchanged as rollback. Install a reviewed wheel in
 
 | Document | Purpose |
 | --- | --- |
-| [PLAN.md](PLAN.md) | Five incremental implementation PRs and completion gates. |
+| [PLAN.md](PLAN.md) | Realignment, worker symmetry, and bridge-surface work. |
 | [AGENTS.md](AGENTS.md) | Repository-wide implementation and review rules. |
 | [Architecture](docs/ARCHITECTURE.md) | Ownership, configuration, invocation, results, and lifecycle. |
 | [Acceptance](docs/ACCEPTANCE.md) | Offline tests, explicit live checks, and release criteria. |
 | [Compatibility](docs/compatibility.md) | Evidence-based support matrix and upstream references. |
 | [Development workflow](docs/WORKFLOW.md) | Sol coordination/review, one Luna implementation writer, and escalation boundaries. |
 
-PRs #2 through #5 are stacked review slices; none is automatically merged or published. Do not import private runtime state or install this candidate over a working environment during review.
+OpenCode setup is an optional reversible caller integration. Do not install this candidate over a working environment during review.
 
 ## License and affiliation
 
